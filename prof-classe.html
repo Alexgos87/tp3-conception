@@ -15,8 +15,9 @@
   <div class="eyebrow" id="eyebrow"></div>
   <h2 class="title" id="title"></h2>
   <p class="subtitle" id="subtitle"></p>
+  <div id="alliances" style="margin-top:15px"></div>
 
-  <div class="grid-2" style="margin-top:30px">
+  <div class="grid-2" style="margin-top:20px">
     <section class="panel">
       <h3>Classement <small>Cliquez sur un nom pour le gérer</small></h3>
       <ul class="rank-list" id="rank"></ul>
@@ -24,6 +25,7 @@
     <section class="panel">
       <h3>Badges <small id="badgeCount"></small></h3>
       <div class="badge-row" id="badges"></div>
+      <div class="legend" id="legend" hidden><span class="medal sm shared">★︎</span> Badge partagé avec l'alliance</div>
     </section>
   </div>
 
@@ -58,10 +60,20 @@
   const badges = badgesOf(classe.id);
   document.getElementById("badgeCount").textContent = plural(badges.length, "badge");
   document.getElementById("badges").innerHTML = badges.map(function (b) {
-    const sig = activeSignalement(b.id);
-    const flag = sig && sig.statut === "ouvert" ? '<br><span class="tag warn">⚑ À corriger</span>' : "";
-    return '<a class="badge-tile" href="prof-badge.html?id=' + b.id + '">' + medalHtml(b) + "<span>" + esc(b.nom) + "<br>" + holdersOf(b.id).length + " / " + rows.length + flag + "</span></a>";
-  }).join("") + '<a class="add-square" href="prof-badge.html?classe=' + classe.id + '" title="Créer un badge">+</a>';
+    // Pour un badge partagé, on compte seulement les étudiants de cette classe
+    const inClass = holdersOf(b.id).filter(function (s) { return isEnrolled(s.id, classe.id); }).length;
+    return '<a class="badge-tile" href="prof-badge.html?id=' + b.id + "&retour=" + classe.id + '">' + medalHtml(b) +
+      "<span>" + esc(b.nom) + "<br>" + inClass + " / " + rows.length + "</span></a>";
+  }).join("") + '<a class="add-square" href="prof-badge.html?classe=' + classe.id + '" title="Créer un badge pour cette classe">+</a>';
+  document.getElementById("legend").hidden = !badges.some(function (b) { return b.allianceId; });
+
+  const alliances = alliancesOfClasse(classe.id);
+  document.getElementById("alliances").innerHTML = alliances.length
+    ? alliances.map(function (a) {
+        return '<a class="alliance-chip" href="prof-alliance.html?id=' + a.id + '">Alliance ' + esc(a.nom) + " · " +
+          plural(allianceClasses(a).length, "classe") + " →</a>";
+      }).join("")
+    : '<a class="link-btn" href="prof.html#alliances">Créer ou rejoindre une alliance avec d\'autres classes</a>';
 
   function archiver() {
     if (!confirm("Archiver « " + classeLabel(classe) + " » ? Les étudiants ne la verront plus dans leurs classes.")) return;

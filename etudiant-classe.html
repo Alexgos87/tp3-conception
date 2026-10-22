@@ -35,7 +35,10 @@
     <h3>Badges <small id="badgeCount"></small></h3>
     <p class="hint" style="margin-top:0">Sélectionnez un badge pour voir ses critères et son statut.</p>
     <ul class="choice-list" id="badges"></ul>
+    <div class="legend" id="legend" hidden><span class="medal sm shared">★&#xFE0E;</span> Badge commun à toutes les classes de l'alliance</div>
   </section>
+
+  <div id="allianceRanks"></div>
 </main>
 
 <script>
@@ -60,14 +63,28 @@
   function rankLine(r) {
     const me = r.etudiant.id === user.id;
     return '<li class="' + (me ? "me" : "") + '"><span class="pos">#' + r.rang + '</span><span class="name">' +
-      esc(fullName(r.etudiant)) + (me ? " (vous)" : "") + '</span><span class="xp">' + r.xp + " XP</span></li>";
+      esc(fullName(r.etudiant)) + (me ? " (vous)" : "") + '</span><span class="xp">' +
+      (r.classe ? esc(r.classe.groupe) + " · " : "") + r.xp + " XP</span></li>";
   }
-  const podium = rows.slice(0, 3);
-  let rankHtml = podium.map(rankLine).join("");
-  if (!podium.includes(myRow)) {
-    rankHtml += '<li class="gap">⋮</li>' + rankLine(myRow);
+  function podiumHtml(list, mine) {
+    const podium = list.slice(0, 3);
+    let html = podium.map(rankLine).join("");
+    if (mine && !podium.includes(mine)) {
+      html += '<li class="gap">⋮</li>' + rankLine(mine);
+    }
+    return html;
   }
-  document.getElementById("rank").innerHTML = rankHtml;
+  document.getElementById("rank").innerHTML = podiumHtml(rows, myRow);
+
+  // Classement commun de chaque alliance dont la classe fait partie
+  document.getElementById("allianceRanks").innerHTML = alliancesOfClasse(classe.id).map(function (a) {
+    const list = allianceRanking(a);
+    const mine = list.find(function (r) { return r.etudiant.id === user.id && r.classe.id === classe.id; });
+    const groupes = allianceClasses(a).map(function (c) { return c.groupe; }).join(", ");
+    return '<section class="panel"><h3>Classement de l\'alliance « ' + esc(a.nom) + " » <small>" + esc(groupes) + "</small></h3>" +
+      '<ul class="rank-list">' + podiumHtml(list, mine) + "</ul>" +
+      '<p class="hint">Votre position parmi les ' + plural(list.length, "étudiant") + " des classes de l'alliance.</p></section>";
+  }).join("");
 
   const badges = badgesOf(classe.id);
   const earned = badgesEarned(user.id, classe.id);
@@ -78,10 +95,12 @@
         const status = n
           ? '<span class="tag">✓ Obtenu' + (n > 1 ? " ×" + n : "") + "</span>"
           : '<span class="tag muted">À obtenir</span>';
-        return '<li><button type="button" onclick="location.href=\'etudiant-badge.html?id=' + b.id + '\'">' + medalHtml(b, { locked: !n }) +
-          '<span class="grow"><strong>' + esc(b.nom) + '</strong><br><span class="hint">+' + b.xp + " XP</span></span>" + status + " →</button></li>";
+        return '<li><button type="button" onclick="location.href=\'etudiant-badge.html?id=' + b.id + "&classe=" + classe.id + '\'">' + medalHtml(b, { locked: !n }) +
+          '<span class="grow"><strong>' + esc(b.nom) + '</strong><br><span class="hint">+' + b.xp + " XP" +
+          (b.allianceId ? " · " + esc(badgeScopeLabel(b)) : "") + "</span></span>" + status + " →</button></li>";
       }).join("")
     : '<li class="empty">Aucun badge disponible pour cette classe.</li>';
+  document.getElementById("legend").hidden = !badges.some(function (b) { return b.allianceId; });
 </script>
 
 </body>

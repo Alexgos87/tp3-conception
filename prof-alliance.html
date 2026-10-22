@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alliance - Ludik</title>
+<link rel="stylesheet" href="style.css">
+<script src="data.js"></script>
+<script src="app.js"></script>
+</head>
+<body>
+
+<main>
+  <a class="back-link" href="prof.html#alliances">← Mes classes</a>
+  <div class="eyebrow" id="eyebrow"></div>
+  <h2 class="title" id="title"></h2>
+  <p class="subtitle">Les classes de l'alliance partagent les mêmes badges et un classement commun. Chaque enseignant attribue les badges à ses propres étudiants.</p>
+
+  <section class="panel" style="margin-top:30px">
+    <h3>Badges partagés <small id="badgeCount"></small></h3>
+    <div class="badge-row" id="badges"></div>
+    <div class="legend"><span class="medal sm shared">★︎</span> Double anneau = badge commun à toutes les classes de l'alliance</div>
+  </section>
+
+  <div class="grid-2">
+    <section class="panel">
+      <h3>Classes membres <small id="classCount"></small></h3>
+      <ul class="row-list" id="classes"></ul>
+      <form style="margin-top:15px" onsubmit="inviter(event)">
+        <label for="inviteSelect">Ajouter une classe</label>
+        <div class="inline-form" style="margin-top:8px">
+          <select id="inviteSelect" required></select>
+          <button type="submit" class="btn">Inviter</button>
+        </div>
+        <p class="hint">Vos classes sont ajoutées tout de suite. Les classes d'un autre enseignant reçoivent une invitation qu'il doit accepter.</p>
+      </form>
+    </section>
+
+    <section class="panel">
+      <h3>Classement de l'alliance <small id="rankCount"></small></h3>
+      <ul class="rank-list" id="rank"></ul>
+    </section>
+  </div>
+</main>
+
+<script>
+  const user = requireRole("enseignant");
+  const alliance = getAlliance(qs("id"));
+  requireAllianceMember(alliance, user);
+
+  document.title = "Alliance " + alliance.nom + " - Ludik";
+  document.getElementById("title").textContent = alliance.nom;
+
+  function render() {
+    const classes = allianceClasses(alliance);
+    document.getElementById("eyebrow").textContent = "Alliance · " + plural(classes.length, "classe");
+
+    const badges = allianceBadges(alliance.id);
+    const audience = classes.reduce(function (n, c) { return n + studentsOf(c.id).length; }, 0);
+    document.getElementById("badgeCount").textContent = plural(badges.length, "badge");
+    document.getElementById("badges").innerHTML = badges.map(function (b) {
+      return '<a class="badge-tile" href="prof-badge.html?id=' + b.id + '">' + medalHtml(b) +
+        "<span>" + esc(b.nom) + "<br>" + holdersOf(b.id).length + " / " + audience + "</span></a>";
+    }).join("") + '<a class="add-square" href="prof-badge.html?alliance=' + alliance.id + '" title="Créer un badge partagé">+</a>';
+
+    document.getElementById("classCount").textContent = plural(classes.length, "classe");
+    let rows = classes.map(function (c) {
+      const prof = getUser(c.profId);
+      const mine = c.profId === user.id;
+      return '<li><span class="grow"><strong>' + esc(classeLabel(c)) + '</strong><br><span class="muted">' +
+        (mine ? "Vous" : "Prof. " + esc(fullName(prof))) + " · " + plural(studentsOf(c.id).length, "étudiant") + "</span></span>" +
+        (mine ? '<button type="button" class="link-btn" onclick="quitter(\'' + c.id + '\')">Retirer de l\'alliance</button>' : "") + "</li>";
+    }).join("");
+    rows += alliance.invitations.map(function (inv) {
+      const c = getClasse(inv.classeId);
+      if (!c) return "";
+      return '<li><span class="grow"><strong>' + esc(classeLabel(c)) + '</strong><br><span class="muted">Prof. ' + esc(fullName(getUser(c.profId))) +
+        " · invitée " + relativeDate(inv.date) + '</span></span><span class="tag muted">En attente</span>' +
+        '<button type="button" class="link-btn" onclick="annulerInvitation(\'' + c.id + '\')">Annuler</button></li>';
+    }).join("");
+    document.getElementById("classes").innerHTML = rows;
+
+    // Classes qu'on peut encore ajouter : actives, pas déjà membres ni invitées
+    const candidates = state.classes.filter(function (c) {
+      return !c.archived && !alliance.classeIds.includes(c.id) &&
+        !alliance.invitations.some(function (inv) { return inv.classeId === c.id; });
+    });
+    const mineC = candidates.filter(function (c) { return c.profId === user.id; });
+    const others = candidates.filter(function (c) { return c.profId !== user.id; });
+    function opt(c) {
+      return '<option value="' + c.id + '">' + esc(classeLabel(c)) + (c.profId === user.id ? "" : " — " + esc(fullName(getUser(c.profId)))) + "</option>";
+    }
+    document.getElementById("inviteSelect").innerHTML = '<option value="">Choisir une classe…</option>' +
+      (mineC.length ? '<optgroup label="Mes classes">' + mineC.map(opt).join("") + "</optgroup>" : "") +
+      (others.length ? '<optgroup label="Classes des autres enseignants">' + others.map(opt).join("") + "</optgroup>" : "");
+
+    const ranking = allianceRanking(alliance);
+    document.getElementById("rankCount").textContent = plural(ranking.length, "étudiant");
+    document.getElementById("rank").innerHTML = ranking.length
+      ? ranking.slice(0, 10).map(function (r) {
+          const name = r.classe.profId === user.id
+            ? '<a class="name" href="prof-etudiant.html?classe=' + r.classe.id + "&etudiant=" + r.etudiant.id + '">' + esc(fullName(r.etudiant)) + "</a>"
+            : '<span class="name">' + esc(fullName(r.etudiant)) + "</span>";
+          return '<li><span class="pos">#' + r.rang + "</span>" + name + '<span class="xp">' + esc(r.classe.groupe) + " · " + r.xp + " XP</span></li>";
+        }).join("") + (ranking.length > 10 ? '<li class="gap">+ ' + (ranking.length - 10) + " autres</li>" : "")
+      : '<li class="empty">Aucun étudiant dans les classes de l\'alliance.</li>';
+  }
+
+  function inviter(event) {
+    event.preventDefault();
+    const classe = getClasse(document.getElementById("inviteSelect").value);
+    if (!classe) return;
+    const mine = classe.profId === user.id;
+    const ok = commit(function () {
+      if (mine) {
+        alliance.classeIds.push(classe.id);
+      } else {
+        alliance.invitations.push({ classeId: classe.id, parId: user.id, date: new Date().toISOString() });
+        addNotificationFor(classe.profId, fullName(user) + " invite votre classe " + classeLabel(classe) + " à rejoindre l'alliance « " + alliance.nom + " ».");
+      }
+    });
+    if (!ok) return;
+    showNotification(mine ? classeLabel(classe) + " a rejoint l'alliance" : "Invitation envoyée à " + fullName(getUser(classe.profId)));
+    render();
+  }
+
+  function annulerInvitation(classeId) {
+    if (!commit(function () {
+      alliance.invitations = alliance.invitations.filter(function (inv) { return inv.classeId !== classeId; });
+    })) return;
+    showNotification("Invitation annulée");
+    render();
+  }
+
+  function quitter(classeId) {
+    const classe = getClasse(classeId);
+    const last = allianceClasses(alliance).length === 1;
+    const message = last
+      ? "Retirer " + classeLabel(classe) + " ? C'est la dernière classe : l'alliance et ses badges partagés seront supprimés. Les XP déjà gagnés restent acquis."
+      : "Retirer " + classeLabel(classe) + " de l'alliance ? Ses étudiants ne verront plus les badges partagés. Les XP déjà gagnés restent acquis.";
+    if (!confirm(message)) return;
+    const ok = commit(function () {
+      alliance.classeIds = alliance.classeIds.filter(function (id) { return id !== classeId; });
+      if (last) {
+        state.alliances = state.alliances.filter(function (a) { return a.id !== alliance.id; });
+        state.badges = state.badges.filter(function (b) { return b.allianceId !== alliance.id; });
+      } else {
+        allianceClasses(alliance).forEach(function (c) {
+          if (c.profId !== user.id) addNotificationFor(c.profId, classeLabel(classe) + " a quitté l'alliance « " + alliance.nom + " ».");
+        });
+      }
+    });
+    if (!ok) return;
+    // Si l'enseignant n'a plus de classe dans l'alliance, il n'y a plus accès
+    if (last || !isAllianceMember(alliance, user.id)) {
+      window.location.href = "prof.html#alliances";
+      return;
+    }
+    showNotification(classeLabel(classe) + " a quitté l'alliance");
+    render();
+  }
+
+  render();
+</script>
+
+</body>
+</html>

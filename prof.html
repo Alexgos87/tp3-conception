@@ -32,6 +32,27 @@
     </div>
   </form>
 
+  <div id="allianceSection" hidden>
+    <div class="list-header" id="alliances">
+      <h3>Mes alliances</h3>
+      <span id="allianceCount"></span>
+    </div>
+    <p class="hint" style="margin-top:-8px">Une alliance regroupe plusieurs classes, même d'autres enseignants, qui partagent les mêmes badges et un classement commun.</p>
+    <div id="invitations"></div>
+    <div class="cards" id="allianceCards"></div>
+
+    <form class="panel" id="allianceForm" style="margin-top:20px" hidden onsubmit="creerAlliance(event)">
+      <h3>Nouvelle alliance</h3>
+      <div class="inline-form">
+        <input type="text" id="nomAlliance" placeholder="Nom (ex. Math 1re année)" required>
+        <select id="classeAlliance" required></select>
+        <button type="submit" class="btn">Créer</button>
+        <button type="button" class="btn secondary" onclick="toggleAllianceForm(false)">Annuler</button>
+      </div>
+      <p class="hint">Choisissez la première classe de l'alliance. Vous pourrez ensuite inviter les classes d'autres enseignants.</p>
+    </form>
+  </div>
+
   <p style="margin-top:35px" id="archivesLink"></p>
 </main>
 
@@ -56,8 +77,11 @@
       const action = archives
         ? '<button class="btn secondary block" onclick="restaurer(\'' + c.id + '\')">Restaurer</button>'
         : '<a class="btn secondary block" href="prof-classe.html?id=' + c.id + '">Ouvrir la classe →</a>';
+      const alliances = archives ? [] : alliancesOfClasse(c.id);
       return '<div class="card"><div class="meta"><span>' + esc(c.groupe) + "</span><span>" + plural(nb, "étudiant") + "</span></div>" +
-        '<div class="card-body"><h4>' + esc(c.nom) + "</h4><p>" + plural(nbBadges, "badge") + "</p></div>" + action + "</div>";
+        '<div class="card-body"><h4>' + esc(c.nom) + "</h4><p>" + plural(nbBadges, "badge") + "</p>" +
+        (alliances.length ? "<p>Alliance : " + alliances.map(function (a) { return esc(a.nom); }).join(", ") + "</p>" : "") +
+        "</div>" + action + "</div>";
     }).join("");
 
     if (!archives) {
@@ -71,6 +95,81 @@
     document.getElementById("archivesLink").innerHTML = archives
       ? ""
       : '<a class="btn secondary" href="prof.html?vue=archives">Archives (' + nbArchives + ")</a>";
+
+    document.getElementById("allianceSection").hidden = archives;
+    if (!archives) renderAlliances();
+  }
+
+  function renderAlliances() {
+    const invitations = invitationsForProf(user.id);
+    document.getElementById("invitations").innerHTML = invitations.length
+      ? '<section class="panel"><h3>Invitations reçues</h3><ul class="row-list">' + invitations.map(function (i) {
+          const from = getUser(i.invitation.parId);
+          const members = allianceClasses(i.alliance).map(classeLabel).join(", ");
+          return '<li><span class="grow"><strong>' + esc(fullName(from)) + "</strong> invite <strong>" + esc(classeLabel(i.classe)) +
+            "</strong> à rejoindre l'alliance « " + esc(i.alliance.nom) + ' »<br><span class="muted">Classes membres : ' + esc(members) +
+            " · " + plural(allianceBadges(i.alliance.id).length, "badge partagé", "badges partagés") + "</span></span>" +
+            '<button class="btn small" onclick="repondre(\'' + i.alliance.id + "', '" + i.classe.id + '\', true)">Accepter</button>' +
+            '<button class="btn secondary small" onclick="repondre(\'' + i.alliance.id + "', '" + i.classe.id + '\', false)">Refuser</button></li>';
+        }).join("") + "</ul></section>"
+      : "";
+
+    const alliances = alliancesOfProf(user.id);
+    document.getElementById("allianceCount").textContent = plural(alliances.length, "alliance");
+    document.getElementById("allianceCards").innerHTML = alliances.map(function (a) {
+      const classes = allianceClasses(a);
+      const profs = new Set(classes.map(function (c) { return c.profId; }));
+      return '<div class="card"><div class="meta"><span>' + plural(classes.length, "classe") + "</span><span>" + plural(profs.size, "enseignant") + "</span></div>" +
+        '<div class="card-body"><h4>' + esc(a.nom) + "</h4>" +
+        classes.map(function (c) {
+          return "<p>" + esc(classeLabel(c)) + (c.profId === user.id ? "" : " · " + esc(fullName(getUser(c.profId)))) + "</p>";
+        }).join("") +
+        "<p>" + plural(allianceBadges(a.id).length, "badge partagé", "badges partagés") + "</p></div>" +
+        '<a class="btn secondary block" href="prof-alliance.html?id=' + a.id + '">Ouvrir l\'alliance →</a></div>';
+    }).join("") + '<button type="button" class="card dashed" onclick="toggleAllianceForm(true)">+ Créer une alliance</button>';
+
+    document.getElementById("classeAlliance").innerHTML = '<option value="">Première classe…</option>' +
+      classesOfProf(user.id, false).map(function (c) {
+        return '<option value="' + c.id + '">' + esc(classeLabel(c)) + "</option>";
+      }).join("");
+  }
+
+  function toggleAllianceForm(show) {
+    document.getElementById("allianceForm").hidden = !show;
+    if (show) document.getElementById("nomAlliance").focus();
+  }
+
+  function creerAlliance(event) {
+    event.preventDefault();
+    const alliance = {
+      id: newId("al"),
+      nom: document.getElementById("nomAlliance").value.trim(),
+      classeIds: [document.getElementById("classeAlliance").value],
+      createurId: user.id,
+      invitations: [],
+      date: new Date().toISOString()
+    };
+    if (!commit(function () { state.alliances.push(alliance); })) return;
+    window.location.href = "prof-alliance.html?id=" + alliance.id;
+  }
+
+  function repondre(allianceId, classeId, accepte) {
+    const alliance = getAlliance(allianceId);
+    const classe = getClasse(classeId);
+    const invitation = alliance.invitations.find(function (inv) { return inv.classeId === classeId; });
+    const ok = commit(function () {
+      alliance.invitations = alliance.invitations.filter(function (inv) { return inv.classeId !== classeId; });
+      if (accepte) alliance.classeIds.push(classeId);
+      addNotificationFor(invitation.parId, fullName(user) + (accepte ? " a accepté" : " a refusé") +
+        " votre invitation : " + classeLabel(classe) + (accepte ? " rejoint" : " ne rejoint pas") + " l'alliance « " + alliance.nom + " ».");
+    });
+    if (!ok) return;
+    if (accepte) {
+      window.location.href = "prof-alliance.html?id=" + allianceId;
+      return;
+    }
+    showNotification("Invitation refusée");
+    render();
   }
 
   function toggleForm(show) {

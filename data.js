@@ -11,7 +11,6 @@ function buildSeed() {
   const users = [
     { id: "u-prof", username: "prof", password: "prof", prenom: "Michel", nom: "Lavoie", email: "michel.lavoie@cegep.ca", role: "enseignant" },
     { id: "u-julie", username: "julie", password: "julie", prenom: "Julie", nom: "Tremblay", email: "julie.tremblay@cegep.ca", role: "enseignant" },
-    { id: "u-admin", username: "admin", password: "admin", prenom: "Sophie", nom: "Gagné", email: "sophie.gagne@cegep.ca", role: "admin" },
     { id: "s1", username: "etudiant", password: "etudiant", prenom: "Gérard", nom: "Yu", email: "gerard.yu@etu.cegep.ca", role: "etudiant" },
     { id: "s2", username: "lea", password: "lea", prenom: "Léa", nom: "Fortin", email: "lea.fortin@etu.cegep.ca", role: "etudiant" },
     { id: "s3", username: "nathan", password: "nathan", prenom: "Nathan", nom: "Côté", email: "nathan.cote@etu.cegep.ca", role: "etudiant" },
@@ -31,7 +30,7 @@ function buildSeed() {
     { id: "c3", nom: "Math 2", groupe: "Gr 204", profId: "u-prof", archived: false },
     { id: "c2", nom: "Sciences", groupe: "Gr 105", profId: "u-julie", archived: false },
     { id: "c4", nom: "Math", groupe: "Gr 101 · H2026", profId: "u-prof", archived: true },
-    { id: "c5", nom: "Philosophie", groupe: "Gr 110", profId: null, archived: false }
+    { id: "c6", nom: "Math", groupe: "Gr 203", profId: "u-julie", archived: false }
   ];
 
   const membres = {
@@ -39,7 +38,7 @@ function buildSeed() {
     c2: ["s1", "s2", "s5", "s9", "s10"],
     c3: ["s3", "s4", "s6", "s9", "s10"],
     c4: ["s7", "s8"],
-    c5: ["s11", "s12", "s2"]
+    c6: ["s5", "s9", "s10", "s11", "s12"]
   };
   const inscriptions = [];
   Object.keys(membres).forEach(function (classeId) {
@@ -60,9 +59,20 @@ function buildSeed() {
     { id: "b9", classeId: "c3", nom: "Série complétée", symbole: "∑", xp: 20, description: "Terminer tous les exercices d'une série avant la date limite." },
     { id: "b10", classeId: "c3", nom: "Présence parfaite", symbole: "●", xp: 15, description: "Être présent à tous les cours d'un mois civil (du 1er au dernier jour du mois)." },
     { id: "b11", classeId: "c4", nom: "Examen final réussi", symbole: "◆", xp: 40, description: "Obtenir 75 % ou plus à l'examen final." },
-    { id: "b12", classeId: "c5", nom: "Lecture complétée", symbole: "✎", xp: 15, description: "Remettre la fiche de lecture de l'œuvre à l'étude." },
-    { id: "b13", classeId: "c5", nom: "Bonne réponse", symbole: "★", xp: 250, description: "À venir" },
-    { id: "b14", classeId: "c3", nom: "Super effort", symbole: "▲", xp: 20, description: "" }
+    { id: "b12", classeId: "c6", nom: "Quiz éclair", symbole: "✓", xp: 10, cumulable: true, description: "Obtenir 100 % à un quiz éclair en début de cours." },
+    // Badges partagés par toutes les classes d'une alliance
+    { id: "ab1", allianceId: "al1", nom: "Olympiade de maths", symbole: "★", xp: 40, description: "Se classer dans la première moitié à l'olympiade de maths commune aux deux groupes." },
+    { id: "ab2", allianceId: "al1", nom: "Tuteur inter-groupes", symbole: "♥", xp: 20, cumulable: true, description: "Animer une période de récupération ouverte aux étudiants des deux groupes." },
+    { id: "ab3", allianceId: "al2", nom: "Projet présenté", symbole: "▲", xp: 30, description: "Présenter le projet intégrateur devant toutes les classes de l'alliance." }
+  ];
+
+  // Plusieurs classes (souvent de profs différents) qui partagent des badges et un classement
+  const alliances = [
+    { id: "al1", nom: "Math 1re année", classeIds: ["c1", "c6"], createurId: "u-prof", invitations: [], date: ago(30) },
+    {
+      id: "al2", nom: "Projet intégrateur", classeIds: ["c2"], createurId: "u-julie", date: ago(10),
+      invitations: [{ classeId: "c3", parId: "u-julie", date: ago(1) }]
+    }
   ];
 
   // [étudiant, badge, il y a N jours]
@@ -78,7 +88,14 @@ function buildSeed() {
     ["s1", "b7", 8], ["s1", "b6", 3],
     ["s9", "b6", 3], ["s10", "b7", 7], ["s10", "b8", 4], ["s2", "b8", 4], ["s5", "b7", 9],
     ["s3", "b9", 6], ["s3", "b10", 2], ["s4", "b9", 6], ["s6", "b10", 2], ["s9", "b9", 6],
-    ["s7", "b11", 200], ["s8", "b11", 200]
+    ["s7", "b11", 200], ["s8", "b11", 200],
+    ["s10", "b12", 6], ["s11", "b12", 6], ["s11", "b12", 2]
+  ];
+
+  // Badges d'alliance : [étudiant, badge, classe où les XP comptent, il y a N jours]
+  const allianceGiven = [
+    ["s2", "ab1", "c1", 4], ["s11", "ab1", "c6", 4], ["s9", "ab1", "c6", 4],
+    ["s1", "ab2", "c1", 3], ["s12", "ab2", "c6", 2]
   ];
 
   // [étudiant, classe, xp, raison, il y a N jours]
@@ -90,9 +107,16 @@ function buildSeed() {
 
   const attributions = [];
   let n = 1;
+  function profOf(classeId) {
+    return classes.find(function (c) { return c.id === classeId; }).profId;
+  }
   badgeGiven.forEach(function (g) {
     const badge = badges.find(function (b) { return b.id === g[1]; });
-    attributions.push({ id: "a" + n++, etudiantId: g[0], classeId: badge.classeId, badgeId: badge.id, xp: badge.xp, note: "", date: ago(g[2]), parId: "u-prof" });
+    attributions.push({ id: "a" + n++, etudiantId: g[0], classeId: badge.classeId, badgeId: badge.id, xp: badge.xp, note: "", date: ago(g[2]), parId: profOf(badge.classeId) });
+  });
+  allianceGiven.forEach(function (g) {
+    const badge = badges.find(function (b) { return b.id === g[1]; });
+    attributions.push({ id: "a" + n++, etudiantId: g[0], classeId: g[2], badgeId: badge.id, xp: badge.xp, note: "", date: ago(g[3]), parId: profOf(g[2]) });
   });
   xpGiven.forEach(function (g) {
     attributions.push({ id: "a" + n++, etudiantId: g[0], classeId: g[1], badgeId: null, xp: g[2], note: g[3], date: ago(g[4]), parId: "u-prof" });
@@ -103,17 +127,8 @@ function buildSeed() {
     { id: "n2", userId: "s1", text: "+15 XP en Math : Belle présentation au tableau.", date: ago(1), read: false },
     { id: "n3", userId: "s1", text: "Badge « Labo parfait » obtenu en Sciences (+25 XP).", date: ago(3), read: true },
     { id: "n4", userId: "u-prof", text: "Zoé Lambert et William Bouchard viennent de créer un compte étudiant.", date: ago(1), read: false },
-    { id: "n5", userId: "u-admin", text: "Michel Lavoie a corrigé le badge « Présence parfaite » (Math 2 · Gr 204).", date: ago(1), read: false },
-    { id: "n6", userId: "u-prof", text: "L'administration a signalé une anomalie sur le badge « Présence parfaite » (Math 2 · Gr 204).", date: ago(4), read: true }
-  ];
-
-  // Anomalies signalées par l'administrateur à l'enseignant responsable
-  const signalements = [
-    {
-      id: "sg1", badgeId: "b10", classeId: "c3", auteurId: "u-admin",
-      message: "Préciser la période : un mois civil ou quatre semaines consécutives ?",
-      statut: "corrige", date: ago(4), dateCorrection: ago(1)
-    }
+    { id: "n5", userId: "u-prof", text: "Julie Tremblay invite votre classe Math 2 · Gr 204 à rejoindre l'alliance « Projet intégrateur ».", date: ago(1), read: false },
+    { id: "n6", userId: "s1", text: "Badge « Tuteur inter-groupes » obtenu en Math (+20 XP).", date: ago(3), read: true }
   ];
 
   return {
@@ -123,6 +138,6 @@ function buildSeed() {
     badges: badges,
     attributions: attributions,
     notifications: notifications,
-    signalements: signalements
+    alliances: alliances
   };
 }

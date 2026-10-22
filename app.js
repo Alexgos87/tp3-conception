@@ -1,13 +1,10 @@
 const APP_NAME = "Ludik";
-const STATE_KEY = "ludik::state-v2";
+const STATE_KEY = "ludik::state-v4";
 const USER_KEY = "ludik::user";
 const THEME_KEY = "ludik::theme";
 const PANNE_KEY = "ludik::panne";
 const XP_PAR_NIVEAU = 100;
 const SYMBOLES = ["★", "◆", "●", "▲", "✓", "♥", "✎", "?", "∑", "⚑", "☀", "♪"];
-
-// Règles de la plateforme vérifiées par l'administrateur
-const REGLES = { xpMin: 1, xpMax: 100, descriptionMin: 15 };
 
 /* ---------- Stockage ---------- */
 
@@ -112,7 +109,6 @@ function logout() {
 function homeFor(user) {
   if (!user) return "index.html";
   if (user.role === "enseignant") return "prof.html";
-  if (user.role === "admin") return "admin.html";
   return "etudiant.html";
 }
 
@@ -147,8 +143,14 @@ function requireOwnClasse(classe, user) {
   if (classe.profId !== user.id) denyAccess("Vous n'êtes pas l'enseignant responsable de cette classe.");
 }
 
-const ROLE_LABELS = { etudiant: "Étudiant", enseignant: "Enseignant", admin: "Administrateur" };
-const ROLE_PLURALS = { etudiant: "étudiants", enseignant: "enseignants", admin: "administrateurs" };
+// Un enseignant gère une alliance s'il y a au moins une de ses classes.
+function requireAllianceMember(alliance, user) {
+  if (!alliance) denyAccess("Cette alliance n'existe pas.");
+  if (!isAllianceMember(alliance, user.id)) denyAccess("Aucune de vos classes ne fait partie de cette alliance.");
+}
+
+const ROLE_LABELS = { etudiant: "Étudiant", enseignant: "Enseignant" };
+const ROLE_PLURALS = { etudiant: "étudiants", enseignant: "enseignants" };
 
 /* ---------- Utilitaires ---------- */
 
@@ -182,8 +184,9 @@ function formatDate(iso) {
   return new Date(iso).toLocaleDateString("fr-CA", { day: "numeric", month: "long", year: "numeric" });
 }
 
-function plural(n, word) {
-  return n + " " + word + (n > 1 ? "s" : "");
+// plural(2, "badge") → « 2 badges » ; plural(2, "badge partagé", "badges partagés") pour les expressions
+function plural(n, word, pluralWord) {
+  return n + " " + (n > 1 ? pluralWord || word + "s" : word);
 }
 
 function showNotification(text) {
@@ -240,8 +243,84 @@ function isEnrolled(etudiantId, classeId) {
   return state.inscriptions.some(function (i) { return i.classeId === classeId && i.etudiantId === etudiantId; });
 }
 
+// Badges d'une classe : les siens, plus ceux des alliances dont elle fait partie.
 function badgesOf(classeId) {
-  return state.badges.filter(function (b) { return b.classeId === classeId; });
+  const allianceIds = alliancesOfClasse(classeId).map(function (a) { return a.id; });
+  return state.badges.filter(function (b) {
+    return b.classeId === classeId || (b.allianceId && allianceIds.includes(b.allianceId));
+  });
+}
+
+/* ---------- Alliances (plusieurs classes qui partagent leurs badges) ---------- */
+
+function getAlliance(id) {
+  return state.alliances.find(function (a) { return a.id === id; }) || null;
+}
+
+// Classes actives membres de l'alliance
+function allianceClasses(alliance) {
+  return alliance.classeIds.map(getClasse).filter(function (c) { return c && !c.archived; });
+}
+
+function alliancesOfClasse(classeId) {
+  return state.alliances.filter(function (a) { return a.classeIds.includes(classeId); });
+}
+
+function isAllianceMember(alliance, profId) {
+  return allianceClasses(alliance).some(function (c) { return c.profId === profId; });
+}
+
+function alliancesOfProf(profId) {
+  return state.alliances.filter(function (a) { return isAllianceMember(a, profId); });
+}
+
+function allianceBadges(allianceId) {
+  return state.badges.filter(function (b) { return b.allianceId === allianceId; });
+}
+
+// Invitations en attente pour les classes d'un enseignant
+function invitationsForProf(profId) {
+  const list = [];
+  state.alliances.forEach(function (a) {
+    a.invitations.forEach(function (inv) {
+      const c = getClasse(inv.classeId);
+      if (c && !c.archived && c.profId === profId) list.push({ alliance: a, invitation: inv, classe: c });
+    });
+  });
+  return list;
+}
+
+// Classes visées par un badge : sa classe, ou toutes les classes de son alliance
+function badgeClasses(badge) {
+  if (badge.allianceId) {
+    const alliance = getAlliance(badge.allianceId);
+    return alliance ? allianceClasses(alliance) : [];
+  }
+  const c = getClasse(badge.classeId);
+  return c ? [c] : [];
+}
+
+function badgeScopeLabel(badge) {
+  if (badge.allianceId) {
+    const alliance = getAlliance(badge.allianceId);
+    return "Alliance " + (alliance ? alliance.nom : "");
+  }
+  return classeLabel(getClasse(badge.classeId));
+}
+
+// Classement commun : chaque étudiant avec les XP gagnés dans sa classe de l'alliance
+function allianceRanking(alliance) {
+  const rows = [];
+  allianceClasses(alliance).forEach(function (c) {
+    studentsOf(c.id).forEach(function (s) {
+      rows.push({ etudiant: s, classe: c, xp: xpOf(s.id, c.id) });
+    });
+  });
+  rows.sort(function (a, b) { return b.xp - a.xp || fullName(a.etudiant).localeCompare(fullName(b.etudiant)); });
+  rows.forEach(function (r, i) {
+    r.rang = i > 0 && rows[i - 1].xp === r.xp ? rows[i - 1].rang : i + 1;
+  });
+  return rows;
 }
 
 function attributionsOf(etudiantId, classeId) {
@@ -280,7 +359,22 @@ function badgesEarned(etudiantId, classeId) {
 function holdersOf(badgeId) {
   const badge = getBadge(badgeId);
   if (!badge) return [];
-  return studentsOf(badge.classeId).filter(function (s) { return hasBadge(s.id, badgeId); });
+  const seen = new Set();
+  const list = [];
+  badgeClasses(badge).forEach(function (c) {
+    studentsOf(c.id).forEach(function (s) {
+      if (!seen.has(s.id)) {
+        seen.add(s.id);
+        list.push(s);
+      }
+    });
+  });
+  return list.filter(function (s) { return hasBadge(s.id, badgeId); });
+}
+
+// Nombre d'étudiants pouvant recevoir le badge
+function badgeAudience(badge) {
+  return badgeClasses(badge).reduce(function (n, c) { return n + studentsOf(c.id).length; }, 0);
 }
 
 function ranking(classeId) {
@@ -312,19 +406,14 @@ function addNotificationFor(userId, text) {
   state.notifications.unshift({ id: newId("n"), userId: userId, text: text, date: new Date().toISOString(), read: false });
 }
 
-function notifyAdmins(text) {
-  state.users.forEach(function (u) {
-    if (u.role === "admin") addNotificationFor(u.id, text);
-  });
-}
-
-function giveBadge(badgeId, etudiantId) {
+// classeId : la classe de l'étudiant où les XP sont comptés (requis pour un badge d'alliance)
+function giveBadge(badgeId, etudiantId, classeId) {
   const badge = getBadge(badgeId);
-  const classe = getClasse(badge.classeId);
+  const classe = getClasse(classeId || badge.classeId);
   if (!canReceive(etudiantId, badge)) return false;
   const me = getCurrentUser();
   state.attributions.push({
-    id: newId("a"), etudiantId: etudiantId, classeId: badge.classeId, badgeId: badgeId,
+    id: newId("a"), etudiantId: etudiantId, classeId: classe.id, badgeId: badgeId,
     xp: badge.xp, note: "", date: new Date().toISOString(), parId: me ? me.id : null
   });
   addNotificationFor(etudiantId, "Badge « " + badge.nom + " » obtenu en " + classe.nom + " (+" + badge.xp + " XP).");
@@ -347,32 +436,6 @@ function giveXp(etudiantId, classeId, xp, note) {
   addNotificationFor(etudiantId, "+" + xp + " XP en " + classe.nom + (note ? " : " + note : "") + ".");
 }
 
-// Problèmes détectés automatiquement selon les règles de la plateforme
-function badgeIssues(badge) {
-  const issues = [];
-  if (!badge.description || badge.description.trim().length < REGLES.descriptionMin) {
-    issues.push("Critères incomplets");
-  }
-  if (!(badge.xp >= REGLES.xpMin && badge.xp <= REGLES.xpMax)) {
-    issues.push("Points incohérents (" + badge.xp + " XP, attendu entre " + REGLES.xpMin + " et " + REGLES.xpMax + ")");
-  }
-  return issues;
-}
-
-/* ---------- Signalements (admin → enseignant) ---------- */
-
-const STATUT_LABELS = { ouvert: "En attente de correction", corrige: "Corrigé, à vérifier", ferme: "Vérifié" };
-
-function signalementsOf(badgeId) {
-  return state.signalements
-    .filter(function (s) { return s.badgeId === badgeId; })
-    .sort(function (a, b) { return b.date.localeCompare(a.date); });
-}
-
-function activeSignalement(badgeId) {
-  return signalementsOf(badgeId).find(function (s) { return s.statut !== "ferme"; }) || null;
-}
-
 /* ---------- Composants HTML ---------- */
 
 function medalHtml(badge, opts) {
@@ -380,6 +443,7 @@ function medalHtml(badge, opts) {
   const cls = ["medal"];
   if (opts.size) cls.push(opts.size);
   if (opts.locked) cls.push("locked");
+  if (badge.allianceId) cls.push("shared");
   const inner = badge.image
     ? '<img src="' + esc(badge.image) + '" alt="">'
     : esc(badge.symbole || "★") + "︎";
@@ -391,10 +455,6 @@ function progressHtml(xp) {
   return '<div class="progress"><div style="width:' + lv.pct + '%"></div></div>' +
     '<div class="progress-label"><span>Niveau ' + lv.niveau + "</span><span>" +
     lv.dansNiveau + " / " + XP_PAR_NIVEAU + " XP</span></div>";
-}
-
-function statutHtml(signalement) {
-  return '<span class="tag' + (signalement.statut === "ouvert" ? " warn" : "") + '">' + STATUT_LABELS[signalement.statut] + "</span>";
 }
 
 /* ---------- En-tête et pied de page ---------- */
@@ -410,9 +470,6 @@ const ICONS = {
 function profileMenuLinks(user) {
   if (user.role === "enseignant") {
     return '<a href="prof.html">Mes classes</a><a href="prof.html?vue=archives">Classes archivées</a>';
-  }
-  if (user.role === "admin") {
-    return '<a href="admin.html">Classes</a><a href="admin-utilisateurs.html">Utilisateurs</a>';
   }
   return '<a href="etudiant.html">Mon profil</a>';
 }

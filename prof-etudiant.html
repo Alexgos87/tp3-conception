@@ -120,13 +120,12 @@
       document.getElementById("pickerDetail").innerHTML = "";
       return;
     }
-    const sig = activeSignalement(b.id);
     document.getElementById("pickerDetail").innerHTML =
       '<div class="detail">' + medalHtml(b, { size: "lg" }) + '<div style="flex:1">' +
       "<h4>" + esc(b.nom) + "</h4>" +
       "<p><strong>Critères :</strong> " + (b.description ? esc(b.description) : "<em>aucun critère décrit</em>") + "</p>" +
       "<p><strong>Récompense :</strong> +" + b.xp + " XP · " + (b.cumulable ? "cumulable" : "non cumulable (une seule fois par étudiant)") + "</p>" +
-      (sig && sig.statut === "ouvert" ? '<p><span class="tag warn">⚑ Anomalie signalée par l\'administration</span></p>' : "") +
+      (b.allianceId ? "<p><strong>Partagé :</strong> badge de l'" + esc(badgeScopeLabel(b).replace("Alliance", "alliance")) + "</p>" : "") +
       "<p>L'étudiant a-t-il rempli ces critères ?</p>" +
       '<div class="inline-form" style="margin-top:12px"><button type="button" class="btn" onclick="confirmer()">Confirmer l\'attribution</button>' +
       '<button type="button" class="btn secondary" onclick="choisir(null)">Annuler</button></div>' +
@@ -166,7 +165,7 @@
       return;
     }
     const xpAvant = xpOf(etudiant.id, classe.id);
-    if (!commit(function () { giveBadge(badge.id, etudiant.id); })) {
+    if (!commit(function () { giveBadge(badge.id, etudiant.id, classe.id); })) {
       // L'attribution n'est pas confirmée : la sélection reste en place pour réessayer
       return;
     }

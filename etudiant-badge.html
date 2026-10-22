@@ -43,17 +43,19 @@
   const user = requireRole("etudiant");
   const badge = getBadge(qs("id"));
   if (!badge) denyAccess("Ce badge n'existe pas.");
-  const classe = getClasse(badge.classeId);
-  if (!classe || classe.archived || !isEnrolled(user.id, classe.id)) {
+  // La classe d'où vient l'étudiant ; pour un badge d'alliance, n'importe quelle classe membre où il est inscrit
+  const classes = badgeClasses(badge).filter(function (c) { return isEnrolled(user.id, c.id); });
+  const classe = classes.find(function (c) { return c.id === qs("classe"); }) || classes[0];
+  if (!classe) {
     denyAccess("Ce badge appartient à une classe à laquelle vous n'êtes pas inscrit.");
   }
 
   const obtentions = badgeAttributions(user.id, badge.id);
-  const total = studentsOf(classe.id).length;
+  const total = badgeAudience(badge);
 
   document.title = badge.nom + " - Ludik";
   document.getElementById("backLink").href = "etudiant-classe.html?id=" + classe.id + "#badges-section";
-  document.getElementById("eyebrow").textContent = "Badge · " + classeLabel(classe);
+  document.getElementById("eyebrow").textContent = "Badge · " + badgeScopeLabel(badge);
   document.getElementById("title").textContent = badge.nom;
   document.getElementById("subtitle").textContent =
     "+" + badge.xp + " XP · " + (badge.cumulable ? "Peut être obtenu plusieurs fois" : "Ne peut être obtenu qu'une fois");
@@ -63,7 +65,7 @@
   document.getElementById("statusTag").innerHTML = obtentions.length
     ? '<span class="tag">✓ Obtenu' + (obtentions.length > 1 ? " ×" + obtentions.length : "") + "</span>"
     : '<span class="tag muted">Pas encore obtenu</span>';
-  document.getElementById("holders").textContent = holdersOf(badge.id).length + " / " + total + " étudiants de la classe l'ont obtenu";
+  document.getElementById("holders").textContent = holdersOf(badge.id).length + " / " + total + " étudiants " + (badge.allianceId ? "de l'alliance" : "de la classe") + " l'ont obtenu";
 
   if (obtentions.length) {
     document.getElementById("status").innerHTML = '<ul class="row-list">' + obtentions.map(function (a) {

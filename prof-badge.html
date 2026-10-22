@@ -13,7 +13,7 @@
 <main>
   <a class="back-link" id="backLink">← Retour à la classe</a>
   <div class="eyebrow" id="eyebrow"></div>
-  <div id="signalement" style="margin-top:15px"></div>
+  <div class="notice" id="sharedNote" style="margin-top:15px" hidden></div>
 
   <form id="badgeForm" onsubmit="enregistrer(event)">
     <div class="badge-editor" style="margin-top:15px">
@@ -37,7 +37,6 @@
             <input type="number" id="xp" min="0" max="500" required>
             <button type="button" class="pencil" data-focus="xp" title="Modifier"></button>
           </div>
-          <p class="hint" id="xpRule"></p>
         </div>
 
         <label style="display:flex; gap:10px; align-items:center; font-weight:normal">
@@ -77,34 +76,65 @@
 <script>
   const user = requireRole("enseignant");
   const existing = qs("id") ? getBadge(qs("id")) : null;
-  const classe = getClasse(existing ? existing.classeId : qs("classe"));
-  requireOwnClasse(classe, user);
+  if (qs("id") && !existing) denyAccess("Ce badge n'existe pas.");
+
+  // Un badge appartient soit à une classe, soit à une alliance (partagé par toutes ses classes)
+  const alliance = getAlliance(existing ? existing.allianceId : qs("alliance"));
+  const classe = alliance ? null : getClasse(existing ? existing.classeId : qs("classe"));
+  if (alliance) requireAllianceMember(alliance, user);
+  else requireOwnClasse(classe, user);
+
+  // Classes de cet enseignant où il peut attribuer le badge
+  const myClasses = alliance
+    ? allianceClasses(alliance).filter(function (c) { return c.profId === user.id; })
+    : [classe];
+  const retour = getClasse(qs("retour"));
+  const backHref = retour && retour.profId === user.id
+    ? "prof-classe.html?id=" + retour.id
+    : alliance ? "prof-alliance.html?id=" + alliance.id : "prof-classe.html?id=" + classe.id;
 
   // Brouillon modifié par la page ; rien n'est sauvegardé avant « Enregistrer »
   const draft = existing
     ? Object.assign({}, existing)
-    : { id: newId("b"), classeId: classe.id, nom: "", description: "", xp: 20, cumulable: false, symbole: "★", image: null };
-  const holders = new Set(existing ? holdersOf(existing.id).map(function (s) { return s.id; }) : []);
+    : Object.assign({ id: newId("b"), nom: "", description: "", xp: 20, cumulable: false, symbole: "★", image: null },
+        alliance ? { allianceId: alliance.id } : { classeId: classe.id });
+  const holders = new Set(existing ? myHolders() : []);
 
   document.title = (existing ? existing.nom : "Nouveau badge") + " - Ludik";
-  document.getElementById("backLink").href = "prof-classe.html?id=" + classe.id;
-  document.getElementById("eyebrow").textContent = (existing ? "Gestion du badge · " : "Nouveau badge · ") + classeLabel(classe);
+  document.getElementById("backLink").href = backHref;
+  document.getElementById("backLink").textContent = retour ? "← Retour à la classe" : alliance ? "← Retour à l'alliance" : "← Retour à la classe";
+  document.getElementById("eyebrow").textContent = (existing ? "Gestion du badge · " : "Nouveau badge · ") +
+    (alliance ? "Alliance " + alliance.nom : classeLabel(classe));
+  if (alliance) {
+    const others = allianceClasses(alliance).filter(function (c) { return c.profId !== user.id; });
+    const note = document.getElementById("sharedNote");
+    note.hidden = false;
+    note.innerHTML = "<strong>Badge partagé par les " + plural(allianceClasses(alliance).length, "classe") + " de l'alliance.</strong>" +
+      "Vos modifications s'appliquent à toutes ces classes" +
+      (others.length ? ", y compris " + others.map(function (c) { return esc(classeLabel(c)) + " (" + esc(fullName(getUser(c.profId))) + ")"; }).join(", ") : "") +
+      ". Vous l'attribuez uniquement à vos propres étudiants.";
+  }
+
+  // Étudiants de mes classes, avec la classe où leurs XP seront comptés
+  function myStudents() {
+    const list = [];
+    myClasses.forEach(function (c) {
+      studentsOf(c.id).forEach(function (s) {
+        if (!list.some(function (x) { return x.etudiant.id === s.id; })) list.push({ etudiant: s, classe: c });
+      });
+    });
+    return list;
+  }
+
+  function myHolders() {
+    return myStudents()
+      .filter(function (x) { return hasBadge(x.etudiant.id, draft.id); })
+      .map(function (x) { return x.etudiant.id; });
+  }
   document.getElementById("nom").value = draft.nom;
   document.getElementById("description").value = draft.description;
   document.getElementById("xp").value = draft.xp;
   document.getElementById("cumulable").checked = !!draft.cumulable;
-  document.getElementById("xpRule").textContent = "Règle de la plateforme : entre " + REGLES.xpMin + " et " + REGLES.xpMax + " XP par badge.";
-
-  // Anomalie signalée par l'administration et pas encore corrigée
-  const signalement = existing ? activeSignalement(existing.id) : null;
-  if (signalement && signalement.statut === "ouvert") {
-    document.getElementById("signalement").innerHTML =
-      '<div class="notice warn"><strong>⚑ L\'administration demande une correction</strong>« ' + esc(signalement.message) + " »" +
-      '<p class="hint" style="margin:6px 0 0">Corrigez le badge puis enregistrez : l\'administration sera avisée de la correction.</p></div>';
-  } else if (signalement) {
-    document.getElementById("signalement").innerHTML =
-      '<div class="notice">' + statutHtml(signalement) + '<p class="hint" style="margin:6px 0 0">Votre correction a été envoyée, l\'administration doit la vérifier.</p></div>';
-  }
   document.getElementById("deleteBtn").hidden = !existing;
 
   document.querySelectorAll(".pencil").forEach(function (b) {
@@ -148,17 +178,21 @@
   });
 
   function renderHolders() {
-    const students = studentsOf(classe.id);
-    const list = students.filter(function (s) { return holders.has(s.id); });
-    document.getElementById("holderCount").textContent = list.length + " / " + students.length;
+    const students = myStudents();
+    const list = students.filter(function (x) { return holders.has(x.etudiant.id); });
+    const showClass = myClasses.length > 1;
+    let count = list.length + " / " + students.length;
+    if (alliance && existing) count += " dans vos classes · " + holdersOf(existing.id).length + " / " + badgeAudience(existing) + " dans l'alliance";
+    document.getElementById("holderCount").textContent = count;
     document.getElementById("holders").innerHTML = list.length
-      ? list.map(function (s) {
-          return '<li><span class="grow">' + esc(fullName(s)) + '</span><button type="button" class="link-btn" onclick="retirerDetenteur(\'' + s.id + '\')">Retirer</button></li>';
+      ? list.map(function (x) {
+          return '<li><span class="grow">' + esc(fullName(x.etudiant)) + (showClass ? ' <span class="muted">· ' + esc(x.classe.groupe) + "</span>" : "") +
+            '</span><button type="button" class="link-btn" onclick="retirerDetenteur(\'' + x.etudiant.id + '\')">Retirer</button></li>';
         }).join("")
-      : '<li class="empty">Personne n\'a encore ce badge.</li>';
+      : '<li class="empty">' + (alliance ? "Aucun de vos étudiants n'a encore ce badge." : "Personne n'a encore ce badge.") + "</li>";
     document.getElementById("addHolder").innerHTML = '<option value="">Attribuer à…</option>' +
-      students.filter(function (s) { return !holders.has(s.id); }).map(function (s) {
-        return '<option value="' + s.id + '">' + esc(fullName(s)) + "</option>";
+      students.filter(function (x) { return !holders.has(x.etudiant.id); }).map(function (x) {
+        return '<option value="' + x.etudiant.id + '">' + esc(fullName(x.etudiant)) + (showClass ? " (" + esc(x.classe.groupe) + ")" : "") + "</option>";
       }).join("");
   }
 
@@ -192,33 +226,31 @@
         state.badges.push(draft);
       }
 
-      const before = existing ? holdersOf(draft.id).map(function (s) { return s.id; }) : [];
+      // Seuls mes étudiants sont touchés, même pour un badge d'alliance
+      const before = existing ? myHolders() : [];
+      const students = myStudents();
       holders.forEach(function (id) {
-        if (!before.includes(id)) giveBadge(draft.id, id);
+        if (before.includes(id)) return;
+        const x = students.find(function (s) { return s.etudiant.id === id; });
+        giveBadge(draft.id, id, x.classe.id);
       });
       before.forEach(function (id) {
         if (!holders.has(id)) revokeBadge(draft.id, id);
       });
-
-      if (signalement && signalement.statut === "ouvert") {
-        signalement.statut = "corrige";
-        signalement.dateCorrection = new Date().toISOString();
-        notifyAdmins(fullName(user) + " a corrigé le badge « " + draft.nom + " » (" + classeLabel(classe) + ").");
-      }
     });
     if (!ok) return;
-    window.location.href = "prof-classe.html?id=" + classe.id;
+    window.location.href = backHref;
   }
 
   function supprimer() {
-    if (!confirm("Supprimer le badge « " + existing.nom + " » ? Les XP qu'il a donnés seront retirés aux étudiants.")) return;
+    const scope = alliance ? " pour toutes les classes de l'alliance" : "";
+    if (!confirm("Supprimer le badge « " + existing.nom + " »" + scope + " ? Les XP qu'il a donnés seront retirés aux étudiants.")) return;
     const ok = commit(function () {
       state.badges = state.badges.filter(function (b) { return b.id !== existing.id; });
       state.attributions = state.attributions.filter(function (a) { return a.badgeId !== existing.id; });
-      state.signalements = state.signalements.filter(function (s) { return s.badgeId !== existing.id; });
     });
     if (!ok) return;
-    window.location.href = "prof-classe.html?id=" + classe.id;
+    window.location.href = backHref;
   }
 
   renderImage();
