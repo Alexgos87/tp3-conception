@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mon profil - Ludik</title>
+<link rel="stylesheet" href="style.css">
+<script src="data.js"></script>
+<script src="app.js"></script>
+</head>
+<body>
+
+<main>
+  <div class="eyebrow">Espace étudiant</div>
+  <h2 class="title" id="title"></h2>
+  <p class="subtitle" id="subtitle"></p>
+
+  <div class="list-header">
+    <h3>Mes classes</h3>
+    <span id="count"></span>
+  </div>
+  <div class="cards" id="cards"></div>
+
+  <div class="list-header">
+    <h3>Derniers accomplissements</h3>
+  </div>
+  <section class="panel">
+    <ul class="row-list" id="recent"></ul>
+  </section>
+</main>
+
+<script>
+  const user = requireRole("etudiant");
+  const classes = classesOfStudent(user.id);
+  const totalXp = classes.reduce(function (s, c) { return s + xpOf(user.id, c.id); }, 0);
+  const totalBadges = classes.reduce(function (s, c) { return s + badgesEarned(user.id, c.id).length; }, 0);
+
+  document.getElementById("title").textContent = fullName(user);
+  document.getElementById("subtitle").textContent = totalXp + " XP au total · " + plural(totalBadges, "badge") + " obtenu" + (totalBadges > 1 ? "s" : "");
+  document.getElementById("count").textContent = plural(classes.length, "classe");
+
+  document.getElementById("cards").innerHTML = classes.length
+    ? classes.map(function (c) {
+        const xp = xpOf(user.id, c.id);
+        const prof = getUser(c.profId);
+        return '<div class="card"><div class="meta"><span>' + esc(c.groupe) + "</span><span>Rang #" + rankOf(user.id, c.id) + " / " + studentsOf(c.id).length + "</span></div>" +
+          '<div class="card-body"><h4>' + esc(c.nom) + "</h4><p>Prof. " + esc(fullName(prof)) + "</p>" +
+          "<p>" + badgesEarned(user.id, c.id).length + " / " + badgesOf(c.id).length + " badges · " + xp + " XP</p>" + progressHtml(xp) + "</div>" +
+          '<a class="btn secondary block" href="etudiant-classe.html?id=' + c.id + '">Voir la classe →</a></div>';
+      }).join("")
+    : '<p class="empty">Vous n\'êtes inscrit à aucune classe. Votre enseignant doit vous ajouter.</p>';
+
+  const recent = state.attributions
+    .filter(function (a) { return a.etudiantId === user.id && classes.some(function (c) { return c.id === a.classeId; }); })
+    .sort(function (a, b) { return b.date.localeCompare(a.date); })
+    .slice(0, 6);
+
+  document.getElementById("recent").innerHTML = recent.length
+    ? recent.map(function (a) {
+        const b = a.badgeId ? getBadge(a.badgeId) : null;
+        const c = getClasse(a.classeId);
+        return "<li>" + (b ? medalHtml(b, { size: "sm" }) : '<span class="medal sm">+</span>') +
+          '<span class="grow"><strong>' + (b ? esc(b.nom) : esc(a.note || "Points d'expérience")) + '</strong><br><span class="muted">' +
+          esc(c.nom) + " · " + relativeDate(a.date) + "</span></span><strong>+" + a.xp + " XP</strong></li>";
+      }).join("")
+    : '<li class="empty">Aucun accomplissement pour l\'instant.</li>';
+</script>
+
+</body>
+</html>

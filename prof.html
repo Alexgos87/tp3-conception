@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mes classes - Ludik</title>
+<link rel="stylesheet" href="style.css">
+<script src="data.js"></script>
+<script src="app.js"></script>
+</head>
+<body>
+
+<main>
+  <a class="back-link" id="backLink" href="prof.html" hidden>← Classes actives</a>
+  <div class="eyebrow">Espace enseignant</div>
+  <h2 class="title" id="title"></h2>
+  <p class="subtitle" id="subtitle"></p>
+
+  <div class="list-header">
+    <h3 id="listTitle"></h3>
+    <span id="count"></span>
+  </div>
+  <div class="cards" id="cards"></div>
+
+  <form class="panel" id="createForm" style="margin-top:20px" hidden onsubmit="creerClasse(event)">
+    <h3>Nouvelle classe</h3>
+    <div class="inline-form">
+      <input type="text" id="nomClasse" placeholder="Nom du cours (ex. Math 3)" required>
+      <input type="text" id="groupeClasse" placeholder="Groupe (ex. Gr 301)" required>
+      <button type="submit" class="btn">Créer</button>
+      <button type="button" class="btn secondary" onclick="toggleForm(false)">Annuler</button>
+    </div>
+  </form>
+
+  <p style="margin-top:35px" id="archivesLink"></p>
+</main>
+
+<script>
+  const user = requireRole("enseignant");
+  const archives = qs("vue") === "archives";
+
+  document.getElementById("title").textContent = archives ? "Classes archivées" : "Bonjour, " + user.prenom + ".";
+  document.getElementById("subtitle").textContent = archives
+    ? "Les classes des sessions précédentes. Vous pouvez les restaurer au besoin."
+    : "Choisissez une classe pour voir son classement et récompenser vos étudiants.";
+  document.getElementById("listTitle").textContent = archives ? "Archives" : "Classes actives";
+  document.getElementById("backLink").hidden = !archives;
+
+  function render() {
+    const classes = classesOfProf(user.id, archives);
+    document.getElementById("count").textContent = plural(classes.length, "classe");
+
+    let html = classes.map(function (c) {
+      const nb = studentsOf(c.id).length;
+      const nbBadges = badgesOf(c.id).length;
+      const action = archives
+        ? '<button class="btn secondary block" onclick="restaurer(\'' + c.id + '\')">Restaurer</button>'
+        : '<a class="btn secondary block" href="prof-classe.html?id=' + c.id + '">Ouvrir la classe →</a>';
+      return '<div class="card"><div class="meta"><span>' + esc(c.groupe) + "</span><span>" + plural(nb, "étudiant") + "</span></div>" +
+        '<div class="card-body"><h4>' + esc(c.nom) + "</h4><p>" + plural(nbBadges, "badge") + "</p></div>" + action + "</div>";
+    }).join("");
+
+    if (!archives) {
+      html += '<button type="button" class="card dashed" onclick="toggleForm(true)">+ Créer une classe</button>';
+    } else if (!classes.length) {
+      html = '<p class="empty">Aucune classe archivée.</p>';
+    }
+    document.getElementById("cards").innerHTML = html;
+
+    const nbArchives = classesOfProf(user.id, true).length;
+    document.getElementById("archivesLink").innerHTML = archives
+      ? ""
+      : '<a class="btn secondary" href="prof.html?vue=archives">Archives (' + nbArchives + ")</a>";
+  }
+
+  function toggleForm(show) {
+    document.getElementById("createForm").hidden = !show;
+    if (show) document.getElementById("nomClasse").focus();
+  }
+
+  function creerClasse(event) {
+    event.preventDefault();
+    const classe = {
+      id: newId("c"),
+      nom: document.getElementById("nomClasse").value.trim(),
+      groupe: document.getElementById("groupeClasse").value.trim(),
+      profId: user.id,
+      archived: false
+    };
+    state.classes.push(classe);
+    saveState();
+    window.location.href = "prof-classe.html?id=" + classe.id;
+  }
+
+  function restaurer(id) {
+    getClasse(id).archived = false;
+    saveState();
+    showNotification("Classe restaurée");
+    render();
+  }
+
+  render();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Classe - Ludik</title>
+<link rel="stylesheet" href="style.css">
+<script src="data.js"></script>
+<script src="app.js"></script>
+</head>
+<body>
+
+<main>
+  <a class="back-link" href="etudiant.html">← Mes classes</a>
+  <div class="eyebrow" id="eyebrow"></div>
+  <h2 class="title" id="title"></h2>
+  <p class="subtitle" id="subtitle"></p>
+
+  <div class="grid-2" style="margin-top:30px">
+    <section class="panel">
+      <h3>Ma progression</h3>
+      <div class="stats" style="grid-template-columns:1fr 1fr; gap:10px">
+        <div class="stat"><strong id="myRank"></strong><span>Rang</span></div>
+        <div class="stat"><strong id="myXp"></strong><span>XP</span></div>
+      </div>
+      <div id="myProgress" style="margin-top:15px"></div>
+    </section>
+    <section class="panel">
+      <h3>Classement</h3>
+      <ul class="rank-list" id="rank"></ul>
+    </section>
+  </div>
+
+  <section class="panel" style="margin-top:20px">
+    <h3>Badges <small id="badgeCount"></small></h3>
+    <div class="badge-row" id="badges"></div>
+  </section>
+
+  <section class="panel">
+    <h3>Comment obtenir les badges</h3>
+    <ul class="criteria-list" id="criteria"></ul>
+  </section>
+</main>
+
+<script>
+  const user = requireRole("etudiant");
+  const classe = getClasse(qs("id"));
+  if (!classe || classe.archived || !isEnrolled(user.id, classe.id)) window.location.replace("etudiant.html");
+
+  document.title = classe.nom + " - Ludik";
+  document.getElementById("eyebrow").textContent = "Classe · " + classe.groupe;
+  document.getElementById("title").textContent = classe.nom;
+  document.getElementById("subtitle").textContent = "Prof. " + fullName(getUser(classe.profId));
+
+  const rows = ranking(classe.id);
+  const xp = xpOf(user.id, classe.id);
+  const myRow = rows.find(function (r) { return r.etudiant.id === user.id; });
+  document.getElementById("myRank").textContent = "#" + myRow.rang + " / " + rows.length;
+  document.getElementById("myXp").textContent = xp;
+  document.getElementById("myProgress").innerHTML = progressHtml(xp) +
+    '<p class="hint">Encore ' + (XP_PAR_NIVEAU - levelInfo(xp).dansNiveau) + " XP avant le niveau " + (levelInfo(xp).niveau + 1) + ".</p>";
+
+  // Le podium, puis la position de l'étudiant s'il n'y figure pas (on n'affiche pas le dernier rang)
+  function rankLine(r) {
+    const me = r.etudiant.id === user.id;
+    return '<li class="' + (me ? "me" : "") + '"><span class="pos">#' + r.rang + '</span><span class="name">' +
+      esc(fullName(r.etudiant)) + (me ? " (vous)" : "") + '</span><span class="xp">' + r.xp + " XP</span></li>";
+  }
+  const podium = rows.slice(0, 3);
+  let rankHtml = podium.map(rankLine).join("");
+  if (!podium.includes(myRow)) {
+    rankHtml += '<li class="gap">⋮</li>' + rankLine(myRow);
+  }
+  document.getElementById("rank").innerHTML = rankHtml;
+
+  const badges = badgesOf(classe.id);
+  const earned = badgesEarned(user.id, classe.id);
+  document.getElementById("badgeCount").textContent = earned.length + " / " + badges.length + " obtenus";
+  document.getElementById("badges").innerHTML = badges.map(function (b) {
+    const has = hasBadge(user.id, b.id);
+    return '<a class="badge-tile" href="#crit-' + b.id + '">' + medalHtml(b, { locked: !has }) + "<span>" + esc(b.nom) + "</span></a>";
+  }).join("");
+
+  document.getElementById("criteria").innerHTML = badges.map(function (b) {
+    const att = state.attributions.find(function (a) { return a.badgeId === b.id && a.etudiantId === user.id; });
+    const nbHolders = holdersOf(b.id).length;
+    return '<li id="crit-' + b.id + '">' + medalHtml(b, { locked: !att }) +
+      "<div><h4>" + esc(b.nom) + " · +" + b.xp + " XP</h4><p>" + esc(b.description) + "</p>" +
+      '<div class="status">' + (att ? "✓ Obtenu " + relativeDate(att.date) : "À obtenir") + " · " + nbHolders + " / " + rows.length + " étudiants l'ont</div></div></li>";
+  }).join("") || '<li class="empty">Votre enseignant n\'a pas encore créé de badges.</li>';
+</script>
+
+</body>
+</html>

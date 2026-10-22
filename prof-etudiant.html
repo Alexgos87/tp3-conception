@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gérer un étudiant - Ludik</title>
+<link rel="stylesheet" href="style.css">
+<script src="data.js"></script>
+<script src="app.js"></script>
+</head>
+<body>
+
+<main>
+  <a class="back-link" id="backLink">← Gestion des étudiants</a>
+  <div class="eyebrow" id="eyebrow"></div>
+  <h2 class="title" id="title"></h2>
+  <p class="subtitle" id="subtitle"></p>
+
+  <div class="grid-2" style="margin-top:30px">
+    <section class="panel">
+      <h3>Informations</h3>
+      <ul class="row-list" id="infos"></ul>
+      <div id="progress" style="margin-top:10px"></div>
+    </section>
+
+    <section class="panel">
+      <h3>Points d'expérience</h3>
+      <form class="stack" onsubmit="ajouterXp(event)">
+        <div class="inline-form">
+          <input type="number" id="xpAmount" min="1" max="500" value="10" required style="max-width:100px">
+          <input type="text" id="xpNote" placeholder="Raison (ex. belle participation)">
+        </div>
+        <button type="submit" class="btn">+ Ajouter les XP</button>
+      </form>
+    </section>
+  </div>
+
+  <section class="panel" style="margin-top:20px">
+    <h3>Badges <small id="badgeCount"></small></h3>
+    <div class="badge-row" id="badges"></div>
+    <div id="picker" hidden style="margin-top:20px">
+      <p class="hint">Badges de la classe pas encore obtenus :</p>
+      <ul class="row-list" id="pickerList"></ul>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h3>Historique</h3>
+    <ul class="row-list" id="history"></ul>
+  </section>
+
+  <button class="btn danger" onclick="retirer()">Retirer l'étudiant de la classe</button>
+</main>
+
+<script>
+  const user = requireRole("enseignant");
+  const classe = getClasse(qs("classe"));
+  const etudiant = getUser(qs("etudiant"));
+  if (!classe || classe.profId !== user.id || !etudiant || !isEnrolled(etudiant.id, classe.id)) {
+    window.location.replace("prof.html");
+  }
+
+  document.title = fullName(etudiant) + " - Ludik";
+  document.getElementById("backLink").href = "prof-etudiants.html?classe=" + classe.id;
+  document.getElementById("eyebrow").textContent = classeLabel(classe);
+  document.getElementById("title").textContent = fullName(etudiant);
+
+  function render() {
+    const xp = xpOf(etudiant.id, classe.id);
+    const total = studentsOf(classe.id).length;
+    document.getElementById("subtitle").textContent =
+      "Rang #" + rankOf(etudiant.id, classe.id) + " sur " + total + " · " + xp + " XP";
+
+    document.getElementById("infos").innerHTML =
+      '<li><span class="grow muted">Courriel</span><span>' + esc(etudiant.email) + "</span></li>" +
+      '<li><span class="grow muted">Nom d\'utilisateur</span><span>' + esc(etudiant.username) + "</span></li>" +
+      '<li><span class="grow muted">Niveau</span><span>' + levelInfo(xp).niveau + "</span></li>";
+    document.getElementById("progress").innerHTML = progressHtml(xp);
+
+    const earned = badgesEarned(etudiant.id, classe.id);
+    const all = badgesOf(classe.id);
+    document.getElementById("badgeCount").textContent = earned.length + " / " + all.length;
+    document.getElementById("badges").innerHTML = earned.map(function (b) {
+      return '<a class="badge-tile" href="prof-badge.html?id=' + b.id + '">' + medalHtml(b) + "<span>" + esc(b.nom) + "</span></a>";
+    }).join("") + '<button type="button" class="add-square" title="Attribuer un badge" onclick="togglePicker()">+</button>';
+
+    const remaining = all.filter(function (b) { return !hasBadge(etudiant.id, b.id); });
+    document.getElementById("pickerList").innerHTML = remaining.length
+      ? remaining.map(function (b) {
+          return "<li>" + medalHtml(b, { size: "sm" }) + '<span class="grow"><strong>' + esc(b.nom) + '</strong><br><span class="muted">' + esc(b.description) + "</span></span>" +
+            '<span class="muted">+' + b.xp + " XP</span>" +
+            '<button class="btn small" onclick="attribuer(\'' + b.id + '\')">Attribuer</button></li>';
+        }).join("")
+      : '<li class="empty">Cet étudiant a déjà tous les badges de la classe.</li>';
+
+    const history = attributionsOf(etudiant.id, classe.id).slice().sort(function (a, b) { return b.date.localeCompare(a.date); });
+    document.getElementById("history").innerHTML = history.length
+      ? history.map(function (a) {
+          const b = a.badgeId ? getBadge(a.badgeId) : null;
+          const label = b ? "Badge « " + esc(b.nom) + " »" : esc(a.note || "Points d'expérience");
+          return "<li>" + (b ? medalHtml(b, { size: "sm" }) : '<span class="medal sm">+</span>') +
+            '<span class="grow">' + label + '<br><span class="muted">' + relativeDate(a.date) + "</span></span>" +
+            "<strong>+" + a.xp + " XP</strong></li>";
+        }).join("")
+      : '<li class="empty">Aucune récompense pour l\'instant.</li>';
+  }
+
+  function togglePicker() {
+    const picker = document.getElementById("picker");
+    picker.hidden = !picker.hidden;
+  }
+
+  function attribuer(badgeId) {
+    giveBadge(badgeId, etudiant.id);
+    saveState();
+    showNotification("Badge « " + getBadge(badgeId).nom + " » attribué");
+    render();
+  }
+
+  function ajouterXp(event) {
+    event.preventDefault();
+    const xp = parseInt(document.getElementById("xpAmount").value, 10);
+    if (!(xp > 0)) return;
+    giveXp(etudiant.id, classe.id, xp, document.getElementById("xpNote").value.trim());
+    saveState();
+    document.getElementById("xpNote").value = "";
+    showNotification("+" + xp + " XP pour " + etudiant.prenom);
+    render();
+  }
+
+  function retirer() {
+    if (!confirm("Retirer " + fullName(etudiant) + " de " + classeLabel(classe) + " ? Ses points et badges de cette classe seront supprimés.")) return;
+    state.inscriptions = state.inscriptions.filter(function (i) { return !(i.classeId === classe.id && i.etudiantId === etudiant.id); });
+    state.attributions = state.attributions.filter(function (a) { return !(a.classeId === classe.id && a.etudiantId === etudiant.id); });
+    saveState();
+    window.location.href = "prof-etudiants.html?classe=" + classe.id;
+  }
+
+  render();
+</script>
+
+</body>
+</html>

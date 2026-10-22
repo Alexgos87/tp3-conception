@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gestion d'un badge - Ludik</title>
+<link rel="stylesheet" href="style.css">
+<script src="data.js"></script>
+<script src="app.js"></script>
+</head>
+<body>
+
+<main>
+  <a class="back-link" id="backLink">← Retour à la classe</a>
+  <div class="eyebrow" id="eyebrow"></div>
+
+  <form id="badgeForm" onsubmit="enregistrer(event)">
+    <div class="badge-editor" style="margin-top:15px">
+      <div class="stack" style="display:flex; flex-direction:column; gap:22px">
+        <div class="edit-field title-field">
+          <input type="text" id="nom" placeholder="Nom du badge (ex. 80 % à l'examen 1)" required aria-label="Nom du badge">
+          <button type="button" class="pencil" data-focus="nom" title="Modifier"></button>
+        </div>
+
+        <div>
+          <label for="description">Description et critères d'attribution</label>
+          <div class="edit-field">
+            <textarea id="description" placeholder="Ce que l'étudiant doit accomplir pour obtenir ce badge" required></textarea>
+            <button type="button" class="pencil" data-focus="description" title="Modifier"></button>
+          </div>
+        </div>
+
+        <div>
+          <label for="xp">XP accordés</label>
+          <div class="edit-field" style="max-width:200px">
+            <input type="number" id="xp" min="0" max="500" required>
+            <button type="button" class="pencil" data-focus="xp" title="Modifier"></button>
+          </div>
+        </div>
+      </div>
+
+      <div class="image-box">
+        <div id="medalPreview"></div>
+        <div class="symbol-pick" id="symbols"></div>
+        <label class="btn secondary small" style="font-weight:bold">
+          Changer l'image
+          <input type="file" id="imageInput" accept="image/*" hidden>
+        </label>
+        <button type="button" class="link-btn" id="removeImage" hidden>Retirer l'image</button>
+      </div>
+    </div>
+
+    <section class="panel" style="margin-top:30px">
+      <h3>Étudiants avec ce badge <small id="holderCount"></small></h3>
+      <ul class="row-list" id="holders"></ul>
+      <div class="inline-form" style="margin-top:15px">
+        <select id="addHolder"></select>
+        <button type="button" class="add-square" title="Ajouter" onclick="ajouterDetenteur()">+</button>
+      </div>
+      <p class="hint">Les changements de cette liste sont appliqués à l'enregistrement.</p>
+    </section>
+
+    <div class="buttons">
+      <button type="button" class="btn danger" id="deleteBtn" onclick="supprimer()">Supprimer le badge</button>
+      <button type="submit" class="btn">Enregistrer</button>
+    </div>
+  </form>
+</main>
+
+<script>
+  const user = requireRole("enseignant");
+  const existing = qs("id") ? getBadge(qs("id")) : null;
+  const classe = getClasse(existing ? existing.classeId : qs("classe"));
+  if (!classe || classe.profId !== user.id) window.location.replace("prof.html");
+
+  // Brouillon modifié par la page ; rien n'est sauvegardé avant « Enregistrer »
+  const draft = existing
+    ? Object.assign({}, existing)
+    : { id: newId("b"), classeId: classe.id, nom: "", description: "", xp: 20, symbole: "★", image: null };
+  const holders = new Set(existing ? holdersOf(existing.id).map(function (s) { return s.id; }) : []);
+
+  document.title = (existing ? existing.nom : "Nouveau badge") + " - Ludik";
+  document.getElementById("backLink").href = "prof-classe.html?id=" + classe.id;
+  document.getElementById("eyebrow").textContent = (existing ? "Gestion du badge · " : "Nouveau badge · ") + classeLabel(classe);
+  document.getElementById("nom").value = draft.nom;
+  document.getElementById("description").value = draft.description;
+  document.getElementById("xp").value = draft.xp;
+  document.getElementById("deleteBtn").hidden = !existing;
+
+  document.querySelectorAll(".pencil").forEach(function (b) {
+    b.innerHTML = ICONS.pencil;
+    b.addEventListener("click", function () { document.getElementById(b.dataset.focus).focus(); });
+  });
+
+  function renderImage() {
+    document.getElementById("medalPreview").innerHTML = medalHtml(draft, { size: "lg" });
+    document.getElementById("symbols").innerHTML = SYMBOLES.map(function (s) {
+      return '<button type="button" class="' + (!draft.image && draft.symbole === s ? "active" : "") + '" data-s="' + s + '">' + s + "︎</button>";
+    }).join("");
+    document.querySelectorAll("#symbols button").forEach(function (b) {
+      b.addEventListener("click", function () {
+        draft.symbole = b.dataset.s;
+        draft.image = null;
+        renderImage();
+      });
+    });
+    document.getElementById("removeImage").hidden = !draft.image;
+  }
+
+  document.getElementById("imageInput").addEventListener("change", function (e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 500000) {
+      showNotification("Image trop lourde (500 Ko maximum)");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = function () {
+      draft.image = reader.result;
+      renderImage();
+    };
+    reader.readAsDataURL(file);
+  });
+
+  document.getElementById("removeImage").addEventListener("click", function () {
+    draft.image = null;
+    renderImage();
+  });
+
+  function renderHolders() {
+    const students = studentsOf(classe.id);
+    const list = students.filter(function (s) { return holders.has(s.id); });
+    document.getElementById("holderCount").textContent = list.length + " / " + students.length;
+    document.getElementById("holders").innerHTML = list.length
+      ? list.map(function (s) {
+          return '<li><span class="grow">' + esc(fullName(s)) + '</span><button type="button" class="link-btn" onclick="retirerDetenteur(\'' + s.id + '\')">Retirer</button></li>';
+        }).join("")
+      : '<li class="empty">Personne n\'a encore ce badge.</li>';
+    document.getElementById("addHolder").innerHTML = '<option value="">Attribuer à…</option>' +
+      students.filter(function (s) { return !holders.has(s.id); }).map(function (s) {
+        return '<option value="' + s.id + '">' + esc(fullName(s)) + "</option>";
+      }).join("");
+  }
+
+  function ajouterDetenteur() {
+    const id = document.getElementById("addHolder").value;
+    if (!id) return;
+    holders.add(id);
+    renderHolders();
+  }
+
+  function retirerDetenteur(id) {
+    holders.delete(id);
+    renderHolders();
+  }
+
+  function enregistrer(event) {
+    event.preventDefault();
+    draft.nom = document.getElementById("nom").value.trim();
+    draft.description = document.getElementById("description").value.trim();
+    draft.xp = parseInt(document.getElementById("xp").value, 10) || 0;
+
+    if (existing) {
+      Object.assign(existing, draft);
+      // Les XP déjà accordés suivent la nouvelle valeur du badge
+      state.attributions.forEach(function (a) {
+        if (a.badgeId === existing.id) a.xp = existing.xp;
+      });
+    } else {
+      state.badges.push(draft);
+    }
+
+    const before = existing ? holdersOf(draft.id).map(function (s) { return s.id; }) : [];
+    holders.forEach(function (id) {
+      if (!before.includes(id)) giveBadge(draft.id, id);
+    });
+    before.forEach(function (id) {
+      if (!holders.has(id)) revokeBadge(draft.id, id);
+    });
+
+    saveState();
+    window.location.href = "prof-classe.html?id=" + classe.id;
+  }
+
+  function supprimer() {
+    if (!confirm("Supprimer le badge « " + existing.nom + " » ? Les XP qu'il a donnés seront retirés aux étudiants.")) return;
+    state.badges = state.badges.filter(function (b) { return b.id !== existing.id; });
+    state.attributions = state.attributions.filter(function (a) { return a.badgeId !== existing.id; });
+    saveState();
+    window.location.href = "prof-classe.html?id=" + classe.id;
+  }
+
+  renderImage();
+  renderHolders();
+</script>
+
+</body>
+</html>

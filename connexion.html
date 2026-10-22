@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connexion - Ludik</title>
+<link rel="stylesheet" href="style.css">
+<script src="data.js"></script>
+<script src="app.js"></script>
+</head>
+<body>
+
+<main class="narrow">
+  <h2 style="text-align:center; margin-bottom:30px;">Se connecter</h2>
+  <form class="stack" onsubmit="seConnecter(event)">
+    <label for="username">Nom d'utilisateur</label>
+    <input type="text" id="username" autocomplete="username" required>
+
+    <label for="password">Mot de passe</label>
+    <input type="password" id="password" autocomplete="current-password" required>
+
+    <div class="buttons">
+      <a class="btn secondary" href="inscription.html">S'inscrire</a>
+      <button type="submit" class="btn">Se connecter</button>
+    </div>
+  </form>
+  <p class="test-account">
+    Comptes de test (nom d'utilisateur = mot de passe)<br>
+    Enseignant : <strong>prof</strong> · Étudiant : <strong>etudiant</strong> · Admin : <strong>admin</strong>
+  </p>
+</main>
+
+<script>
+  function seConnecter(event) {
+    event.preventDefault();
+    const user = findUser(document.getElementById("username").value.trim(), document.getElementById("password").value);
+    if (!user) {
+      showNotification("Nom d'utilisateur ou mot de passe incorrect");
+      return;
+    }
+    login(user);
+    window.location.href = homeFor(user);
+  }
+</script>
+
+</body>
+</html>

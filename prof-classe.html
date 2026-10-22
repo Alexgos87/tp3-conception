@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Classe - Ludik</title>
+<link rel="stylesheet" href="style.css">
+<script src="data.js"></script>
+<script src="app.js"></script>
+</head>
+<body>
+
+<main>
+  <a class="back-link" href="prof.html">← Mes classes</a>
+  <div class="eyebrow" id="eyebrow"></div>
+  <h2 class="title" id="title"></h2>
+  <p class="subtitle" id="subtitle"></p>
+
+  <div class="grid-2" style="margin-top:30px">
+    <section class="panel">
+      <h3>Classement <small>Cliquez sur un nom pour le gérer</small></h3>
+      <ul class="rank-list" id="rank"></ul>
+    </section>
+    <section class="panel">
+      <h3>Badges <small id="badgeCount"></small></h3>
+      <div class="badge-row" id="badges"></div>
+    </section>
+  </div>
+
+  <div class="buttons" style="margin-top:25px">
+    <a class="btn" id="gestionLink">Gestion des étudiants →</a>
+    <button class="btn secondary" onclick="archiver()">Archiver la classe</button>
+  </div>
+</main>
+
+<script>
+  const user = requireRole("enseignant");
+  const classe = getClasse(qs("id"));
+  if (!classe || classe.profId !== user.id) window.location.replace("prof.html");
+
+  document.title = classe.nom + " - Ludik";
+  document.getElementById("eyebrow").textContent = "Classe · " + classe.groupe;
+  document.getElementById("title").textContent = classe.nom;
+  document.getElementById("gestionLink").href = "prof-etudiants.html?classe=" + classe.id;
+
+  const rows = ranking(classe.id);
+  const totalXp = rows.reduce(function (s, r) { return s + r.xp; }, 0);
+  document.getElementById("subtitle").textContent =
+    plural(rows.length, "étudiant") + " · " + totalXp + " XP accordés au total";
+
+  document.getElementById("rank").innerHTML = rows.length
+    ? rows.map(function (r) {
+        return '<li><span class="pos">#' + r.rang + '</span><a class="name" href="prof-etudiant.html?classe=' + classe.id + "&etudiant=" + r.etudiant.id + '">' +
+          esc(fullName(r.etudiant)) + '</a><span class="xp">Niv. ' + levelInfo(r.xp).niveau + " · " + r.xp + " XP</span></li>";
+      }).join("")
+    : '<li class="empty">Aucun étudiant. Ajoutez-en dans la gestion des étudiants.</li>';
+
+  const badges = badgesOf(classe.id);
+  document.getElementById("badgeCount").textContent = plural(badges.length, "badge");
+  document.getElementById("badges").innerHTML = badges.map(function (b) {
+    return '<a class="badge-tile" href="prof-badge.html?id=' + b.id + '">' + medalHtml(b) + "<span>" + esc(b.nom) + "<br>" + holdersOf(b.id).length + " / " + rows.length + "</span></a>";
+  }).join("") + '<a class="add-square" href="prof-badge.html?classe=' + classe.id + '" title="Créer un badge">+</a>';
+
+  function archiver() {
+    if (!confirm("Archiver « " + classeLabel(classe) + " » ? Les étudiants ne la verront plus dans leurs classes.")) return;
+    classe.archived = true;
+    saveState();
+    window.location.href = "prof.html?vue=archives";
+  }
+</script>
+
+</body>
+</html>

@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gestion des étudiants - Ludik</title>
+<link rel="stylesheet" href="style.css">
+<script src="data.js"></script>
+<script src="app.js"></script>
+</head>
+<body>
+
+<main>
+  <a class="back-link" id="backLink">← Retour à la classe</a>
+  <div class="eyebrow">Gestion des étudiants</div>
+  <h2 class="title" id="title"></h2>
+
+  <div class="list-header">
+    <h3>Étudiants</h3>
+    <span id="count"></span>
+  </div>
+  <input type="text" id="search" placeholder="Rechercher un étudiant" style="width:100%; margin-bottom:15px">
+  <div class="scroll-box">
+    <ul class="row-list" id="list"></ul>
+  </div>
+
+  <form class="panel" style="margin-top:25px" onsubmit="ajouter(event)">
+    <h3>Ajouter un étudiant</h3>
+    <div class="inline-form">
+      <select id="addSelect" required></select>
+      <button type="submit" class="btn">Ajouter l'étudiant</button>
+    </div>
+    <p class="hint">Seuls les étudiants ayant déjà un compte apparaissent dans la liste.</p>
+  </form>
+</main>
+
+<script>
+  const user = requireRole("enseignant");
+  const classe = getClasse(qs("classe"));
+  if (!classe || classe.profId !== user.id) window.location.replace("prof.html");
+
+  document.getElementById("title").textContent = classeLabel(classe);
+  document.getElementById("backLink").href = "prof-classe.html?id=" + classe.id;
+  const search = document.getElementById("search");
+  search.addEventListener("input", render);
+
+  function render() {
+    const term = search.value.trim().toLowerCase();
+    const rows = ranking(classe.id);
+    const filtered = rows.filter(function (r) {
+      return !term || (fullName(r.etudiant) + " " + r.etudiant.email).toLowerCase().includes(term);
+    });
+    document.getElementById("count").textContent = plural(rows.length, "étudiant");
+    document.getElementById("list").innerHTML = filtered.length
+      ? filtered.map(function (r) {
+          const nbBadges = badgesEarned(r.etudiant.id, classe.id).length;
+          return "<li><span class=\"grow\"><strong>" + esc(fullName(r.etudiant)) + '</strong><br><span class="muted">' + esc(r.etudiant.email) + "</span></span>" +
+            '<span class="muted">' + plural(nbBadges, "badge") + " · " + r.xp + " XP</span>" +
+            '<a class="btn secondary small" href="prof-etudiant.html?classe=' + classe.id + "&etudiant=" + r.etudiant.id + '">Gérer →</a></li>';
+        }).join("")
+      : '<li class="empty">Aucun étudiant trouvé.</li>';
+
+    const candidats = state.users.filter(function (u) { return u.role === "etudiant" && !isEnrolled(u.id, classe.id); });
+    document.getElementById("addSelect").innerHTML = '<option value="">Choisir un étudiant…</option>' +
+      candidats.map(function (u) {
+        return '<option value="' + u.id + '">' + esc(fullName(u)) + " (" + esc(u.username) + ")</option>";
+      }).join("");
+  }
+
+  function ajouter(event) {
+    event.preventDefault();
+    const id = document.getElementById("addSelect").value;
+    if (!id) return;
+    state.inscriptions.push({ classeId: classe.id, etudiantId: id });
+    addNotificationFor(id, "Vous avez été ajouté à la classe " + classeLabel(classe) + ".");
+    saveState();
+    showNotification(fullName(getUser(id)) + " a été ajouté à la classe");
+    render();
+  }
+
+  render();
+</script>
+
+</body>
+</html>

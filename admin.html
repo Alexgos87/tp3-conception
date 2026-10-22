@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Administration - Ludik</title>
+<link rel="stylesheet" href="style.css">
+<script src="data.js"></script>
+<script src="app.js"></script>
+</head>
+<body>
+
+<main>
+  <div class="eyebrow">Administration</div>
+  <h2 class="title">Vue d'ensemble</h2>
+  <p class="subtitle">Supervisez les utilisateurs et l'activité de la plateforme.</p>
+
+  <div class="stats" id="stats" style="margin-top:30px"></div>
+
+  <div class="list-header">
+    <h3>Utilisateurs</h3>
+    <span id="count"></span>
+  </div>
+  <div class="inline-form" style="margin-bottom:15px">
+    <input type="text" id="search" placeholder="Rechercher un utilisateur">
+    <select id="roleFilter">
+      <option value="">Tous les rôles</option>
+      <option value="etudiant">Étudiants</option>
+      <option value="enseignant">Enseignants</option>
+      <option value="admin">Administrateurs</option>
+    </select>
+  </div>
+  <div style="overflow-x:auto">
+    <table class="data">
+      <thead><tr><th>Nom</th><th>Courriel</th><th>Rôle</th><th>Classes</th><th></th></tr></thead>
+      <tbody id="users"></tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+  const me = requireRole("admin");
+  const search = document.getElementById("search");
+  const roleFilter = document.getElementById("roleFilter");
+  search.addEventListener("input", render);
+  roleFilter.addEventListener("change", render);
+
+  function render() {
+    const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+    const stats = [
+      [state.users.length, "Utilisateurs"],
+      [state.classes.filter(function (c) { return !c.archived; }).length, "Classes actives"],
+      [state.badges.length, "Badges créés"],
+      [state.attributions.filter(function (a) { return a.date >= weekAgo; }).length, "Récompenses (7 j)"]
+    ];
+    document.getElementById("stats").innerHTML = stats.map(function (s) {
+      return '<div class="stat"><strong>' + s[0] + "</strong><span>" + s[1] + "</span></div>";
+    }).join("");
+
+    const term = search.value.trim().toLowerCase();
+    const list = state.users.filter(function (u) {
+      return (!roleFilter.value || u.role === roleFilter.value) &&
+        (!term || (fullName(u) + " " + u.email + " " + u.username).toLowerCase().includes(term));
+    });
+    document.getElementById("count").textContent = plural(list.length, "utilisateur");
+
+    document.getElementById("users").innerHTML = list.map(function (u) {
+      const nbClasses = u.role === "enseignant"
+        ? classesOfProf(u.id, false).length
+        : u.role === "etudiant" ? classesOfStudent(u.id).length : "—";
+      const roleSelect = '<select onchange="changerRole(\'' + u.id + '\', this.value)"' + (u.id === me.id ? " disabled" : "") + ">" +
+        Object.keys(ROLE_LABELS).map(function (r) {
+          return '<option value="' + r + '"' + (u.role === r ? " selected" : "") + ">" + ROLE_LABELS[r] + "</option>";
+        }).join("") + "</select>";
+      return "<tr><td><strong>" + esc(fullName(u)) + '</strong><br><span class="hint">' + esc(u.username) + "</span></td>" +
+        "<td>" + esc(u.email) + "</td><td>" + roleSelect + "</td><td>" + nbClasses + "</td>" +
+        "<td>" + (u.id === me.id ? "" : '<button class="link-btn" onclick="supprimer(\'' + u.id + '\')">Supprimer</button>') + "</td></tr>";
+    }).join("");
+  }
+
+  function changerRole(id, role) {
+    getUser(id).role = role;
+    saveState();
+    showNotification("Rôle de " + fullName(getUser(id)) + " : " + ROLE_LABELS[role]);
+    render();
+  }
+
+  function supprimer(id) {
+    const u = getUser(id);
+    if (!confirm("Supprimer le compte de " + fullName(u) + " ?")) return;
+    state.users = state.users.filter(function (x) { return x.id !== id; });
+    state.inscriptions = state.inscriptions.filter(function (i) { return i.etudiantId !== id; });
+    state.attributions = state.attributions.filter(function (a) { return a.etudiantId !== id; });
+    saveState();
+    showNotification("Compte supprimé");
+    render();
+  }
+
+  render();
+</script>
+
+</body>
+</html>

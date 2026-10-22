@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Accueil - Ludik</title>
+<link rel="stylesheet" href="style.css">
+<script src="data.js"></script>
+<script src="app.js"></script>
+</head>
+<body>
+
+<main>
+  <div class="eyebrow">Plateforme de ludification</div>
+  <h2 class="title">Rendez vos cours<br>plus motivants.</h2>
+  <p class="subtitle">Des points d'expérience, des badges et des classements pour valoriser les réalisations de vos étudiants.</p>
+
+  <div class="preview" aria-label="Aperçu">
+    <div>
+      <div class="tag">APERÇU · CLASSE MATH · GR 202</div>
+      <ul class="rank-list" id="previewRank"></ul>
+    </div>
+    <div>
+      <div class="tag">BADGES DE LA CLASSE</div>
+      <div class="badge-row" id="previewBadges"></div>
+    </div>
+  </div>
+
+  <a class="btn" id="continueBtn" href="connexion.html">Continuer →</a>
+
+  <div class="list-header">
+    <h3>Pour qui ?</h3>
+  </div>
+  <div class="cards">
+    <div class="card">
+      <div class="meta"><span>Enseignants</span></div>
+      <h4>Récompensez</h4>
+      <p>Gérez vos classes, définissez des réalisations et accordez des badges et des points d'expérience.</p>
+    </div>
+    <div class="card">
+      <div class="meta"><span>Étudiants</span></div>
+      <h4>Progressez</h4>
+      <p>Consultez les critères, vos récompenses, votre niveau et votre position dans le classement.</p>
+    </div>
+    <div class="card">
+      <div class="meta"><span>Administrateurs</span></div>
+      <h4>Supervisez</h4>
+      <p>Gardez un œil sur les utilisateurs et le fonctionnement de la plateforme.</p>
+    </div>
+  </div>
+</main>
+
+<script>
+  const user = getCurrentUser();
+  if (user) document.getElementById("continueBtn").href = homeFor(user);
+
+  document.getElementById("previewRank").innerHTML = ranking("c1").slice(0, 4).map(function (r) {
+    return '<li><span class="pos">#' + r.rang + '</span><span class="name">' + esc(fullName(r.etudiant)) + '</span><span class="xp">' + r.xp + " XP</span></li>";
+  }).join("");
+
+  document.getElementById("previewBadges").innerHTML = badgesOf("c1").map(function (b) {
+    return '<div class="badge-tile">' + medalHtml(b) + "<span>" + esc(b.nom) + "</span></div>";
+  }).join("");
+</script>
+
+</body>
+</html>
