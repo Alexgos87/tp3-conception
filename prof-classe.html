@@ -36,7 +36,7 @@
 <script>
   const user = requireRole("enseignant");
   const classe = getClasse(qs("id"));
-  if (!classe || classe.profId !== user.id) window.location.replace("prof.html");
+  requireOwnClasse(classe, user);
 
   document.title = classe.nom + " - Ludik";
   document.getElementById("eyebrow").textContent = "Classe · " + classe.groupe;
@@ -58,13 +58,14 @@
   const badges = badgesOf(classe.id);
   document.getElementById("badgeCount").textContent = plural(badges.length, "badge");
   document.getElementById("badges").innerHTML = badges.map(function (b) {
-    return '<a class="badge-tile" href="prof-badge.html?id=' + b.id + '">' + medalHtml(b) + "<span>" + esc(b.nom) + "<br>" + holdersOf(b.id).length + " / " + rows.length + "</span></a>";
+    const sig = activeSignalement(b.id);
+    const flag = sig && sig.statut === "ouvert" ? '<br><span class="tag warn">⚑ À corriger</span>' : "";
+    return '<a class="badge-tile" href="prof-badge.html?id=' + b.id + '">' + medalHtml(b) + "<span>" + esc(b.nom) + "<br>" + holdersOf(b.id).length + " / " + rows.length + flag + "</span></a>";
   }).join("") + '<a class="add-square" href="prof-badge.html?classe=' + classe.id + '" title="Créer un badge">+</a>';
 
   function archiver() {
     if (!confirm("Archiver « " + classeLabel(classe) + " » ? Les étudiants ne la verront plus dans leurs classes.")) return;
-    classe.archived = true;
-    saveState();
+    if (!commit(function () { classe.archived = true; })) return;
     window.location.href = "prof.html?vue=archives";
   }
 </script>

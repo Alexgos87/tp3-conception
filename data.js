@@ -30,14 +30,16 @@ function buildSeed() {
     { id: "c1", nom: "Math", groupe: "Gr 202", profId: "u-prof", archived: false },
     { id: "c3", nom: "Math 2", groupe: "Gr 204", profId: "u-prof", archived: false },
     { id: "c2", nom: "Sciences", groupe: "Gr 105", profId: "u-julie", archived: false },
-    { id: "c4", nom: "Math", groupe: "Gr 101 · H2026", profId: "u-prof", archived: true }
+    { id: "c4", nom: "Math", groupe: "Gr 101 · H2026", profId: "u-prof", archived: true },
+    { id: "c5", nom: "Philosophie", groupe: "Gr 110", profId: null, archived: false }
   ];
 
   const membres = {
     c1: ["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8"],
     c2: ["s1", "s2", "s5", "s9", "s10"],
     c3: ["s3", "s4", "s6", "s9", "s10"],
-    c4: ["s7", "s8"]
+    c4: ["s7", "s8"],
+    c5: ["s11", "s12", "s2"]
   };
   const inscriptions = [];
   Object.keys(membres).forEach(function (classeId) {
@@ -48,21 +50,24 @@ function buildSeed() {
 
   const badges = [
     { id: "b1", classeId: "c1", nom: "80 % à l'examen 1", symbole: "◆", xp: 30, description: "Obtenir une note de 80 % ou plus à l'examen 1." },
-    { id: "b2", classeId: "c1", nom: "Participation active", symbole: "●", xp: 10, description: "Intervenir en classe lors de trois cours consécutifs." },
+    { id: "b2", classeId: "c1", nom: "Participation active", symbole: "●", xp: 10, cumulable: true, description: "Intervenir en classe lors de trois cours consécutifs. Peut être obtenu plusieurs fois." },
     { id: "b3", classeId: "c1", nom: "Devoirs complets", symbole: "✓", xp: 20, description: "Remettre tous les devoirs de l'étape à temps." },
     { id: "b4", classeId: "c1", nom: "Entraide", symbole: "♥", xp: 15, description: "Aider un ou une collègue à comprendre une notion (confirmé par l'enseignant)." },
     { id: "b5", classeId: "c1", nom: "Défi du mois", symbole: "★", xp: 50, description: "Résoudre le problème défi affiché au tableau avant la fin du mois." },
     { id: "b6", classeId: "c2", nom: "Labo parfait", symbole: "▲", xp: 25, description: "Obtenir 100 % à un rapport de laboratoire." },
-    { id: "b7", classeId: "c2", nom: "Question pertinente", symbole: "?", xp: 10, description: "Poser une question qui fait avancer la discussion en classe." },
+    { id: "b7", classeId: "c2", nom: "Question pertinente", symbole: "?", xp: 10, cumulable: true, description: "Poser une question qui fait avancer la discussion en classe. Peut être obtenu plusieurs fois." },
     { id: "b8", classeId: "c2", nom: "Rapport soigné", symbole: "✎", xp: 20, description: "Remettre un rapport sans faute de français et bien structuré." },
     { id: "b9", classeId: "c3", nom: "Série complétée", symbole: "∑", xp: 20, description: "Terminer tous les exercices d'une série avant la date limite." },
-    { id: "b10", classeId: "c3", nom: "Présence parfaite", symbole: "●", xp: 15, description: "Être présent à tous les cours d'un mois." },
-    { id: "b11", classeId: "c4", nom: "Examen final réussi", symbole: "◆", xp: 40, description: "Obtenir 75 % ou plus à l'examen final." }
+    { id: "b10", classeId: "c3", nom: "Présence parfaite", symbole: "●", xp: 15, description: "Être présent à tous les cours d'un mois civil (du 1er au dernier jour du mois)." },
+    { id: "b11", classeId: "c4", nom: "Examen final réussi", symbole: "◆", xp: 40, description: "Obtenir 75 % ou plus à l'examen final." },
+    { id: "b12", classeId: "c5", nom: "Lecture complétée", symbole: "✎", xp: 15, description: "Remettre la fiche de lecture de l'œuvre à l'étude." },
+    { id: "b13", classeId: "c5", nom: "Bonne réponse", symbole: "★", xp: 250, description: "À venir" },
+    { id: "b14", classeId: "c3", nom: "Super effort", symbole: "▲", xp: 20, description: "" }
   ];
 
   // [étudiant, badge, il y a N jours]
   const badgeGiven = [
-    ["s2", "b1", 20], ["s2", "b2", 15], ["s2", "b3", 10], ["s2", "b5", 6], ["s2", "b4", 3],
+    ["s2", "b1", 20], ["s2", "b2", 15], ["s2", "b3", 10], ["s2", "b5", 6], ["s2", "b4", 3], ["s2", "b2", 5],
     ["s7", "b1", 20], ["s7", "b3", 10], ["s7", "b5", 4],
     ["s3", "b1", 20], ["s3", "b2", 14], ["s3", "b3", 10], ["s3", "b4", 8],
     ["s1", "b2", 9], ["s1", "b1", 2],
@@ -98,7 +103,17 @@ function buildSeed() {
     { id: "n2", userId: "s1", text: "+15 XP en Math : Belle présentation au tableau.", date: ago(1), read: false },
     { id: "n3", userId: "s1", text: "Badge « Labo parfait » obtenu en Sciences (+25 XP).", date: ago(3), read: true },
     { id: "n4", userId: "u-prof", text: "Zoé Lambert et William Bouchard viennent de créer un compte étudiant.", date: ago(1), read: false },
-    { id: "n5", userId: "u-admin", text: "2 nouveaux comptes étudiants cette semaine.", date: ago(1), read: false }
+    { id: "n5", userId: "u-admin", text: "Michel Lavoie a corrigé le badge « Présence parfaite » (Math 2 · Gr 204).", date: ago(1), read: false },
+    { id: "n6", userId: "u-prof", text: "L'administration a signalé une anomalie sur le badge « Présence parfaite » (Math 2 · Gr 204).", date: ago(4), read: true }
+  ];
+
+  // Anomalies signalées par l'administrateur à l'enseignant responsable
+  const signalements = [
+    {
+      id: "sg1", badgeId: "b10", classeId: "c3", auteurId: "u-admin",
+      message: "Préciser la période : un mois civil ou quatre semaines consécutives ?",
+      statut: "corrige", date: ago(4), dateCorrection: ago(1)
+    }
   ];
 
   return {
@@ -107,6 +122,7 @@ function buildSeed() {
     inscriptions: inscriptions,
     badges: badges,
     attributions: attributions,
-    notifications: notifications
+    notifications: notifications,
+    signalements: signalements
   };
 }

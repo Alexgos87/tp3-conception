@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Administration - Ludik</title>
+<title>Supervision - Ludik</title>
 <link rel="stylesheet" href="style.css">
 <script src="data.js"></script>
 <script src="app.js"></script>
@@ -12,88 +12,106 @@
 
 <main>
   <div class="eyebrow">Administration</div>
-  <h2 class="title">Vue d'ensemble</h2>
-  <p class="subtitle">Supervisez les utilisateurs et l'activité de la plateforme.</p>
+  <h2 class="title">Supervision des classes</h2>
+  <p class="subtitle">Vérifiez l'enseignant responsable de chaque classe et la conformité de ses badges.</p>
 
   <div class="stats" id="stats" style="margin-top:30px"></div>
 
   <div class="list-header">
-    <h3>Utilisateurs</h3>
+    <h3>Classes</h3>
     <span id="count"></span>
   </div>
   <div class="inline-form" style="margin-bottom:15px">
-    <input type="text" id="search" placeholder="Rechercher un utilisateur">
-    <select id="roleFilter">
-      <option value="">Tous les rôles</option>
-      <option value="etudiant">Étudiants</option>
-      <option value="enseignant">Enseignants</option>
-      <option value="admin">Administrateurs</option>
+    <input type="text" id="search" placeholder="Rechercher une classe ou un enseignant">
+    <select id="filter">
+      <option value="">Toutes les classes</option>
+      <option value="sansProf">Sans enseignant</option>
+      <option value="anomalies">Avec badges à vérifier</option>
     </select>
   </div>
-  <div style="overflow-x:auto">
-    <table class="data">
-      <thead><tr><th>Nom</th><th>Courriel</th><th>Rôle</th><th>Classes</th><th></th></tr></thead>
-      <tbody id="users"></tbody>
-    </table>
+  <div class="cards" id="cards"></div>
+
+  <div class="list-header">
+    <h3>Suivi des signalements</h3>
+    <span id="sigCount"></span>
   </div>
+  <section class="panel">
+    <ul class="row-list" id="signalements"></ul>
+  </section>
 </main>
 
 <script>
-  const me = requireRole("admin");
+  requireRole("admin");
   const search = document.getElementById("search");
-  const roleFilter = document.getElementById("roleFilter");
+  const filter = document.getElementById("filter");
   search.addEventListener("input", render);
-  roleFilter.addEventListener("change", render);
+  filter.addEventListener("change", render);
+
+  function badgesToCheck(classeId) {
+    return badgesOf(classeId).filter(function (b) {
+      return badgeIssues(b).length || activeSignalement(b.id);
+    });
+  }
 
   function render() {
-    const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
-    const stats = [
-      [state.users.length, "Utilisateurs"],
-      [state.classes.filter(function (c) { return !c.archived; }).length, "Classes actives"],
-      [state.badges.length, "Badges créés"],
-      [state.attributions.filter(function (a) { return a.date >= weekAgo; }).length, "Récompenses (7 j)"]
-    ];
-    document.getElementById("stats").innerHTML = stats.map(function (s) {
+    const classes = state.classes.filter(function (c) { return !c.archived; });
+    const sansProf = classes.filter(function (c) { return !getUser(c.profId); });
+    const aVerifier = state.signalements.filter(function (s) { return s.statut === "corrige"; });
+    const nonConformes = state.badges.filter(function (b) {
+      const c = getClasse(b.classeId);
+      return c && !c.archived && badgeIssues(b).length;
+    });
+
+    document.getElementById("stats").innerHTML = [
+      [classes.length, "Classes actives"],
+      [sansProf.length, "Sans enseignant"],
+      [nonConformes.length, "Badges non conformes"],
+      [aVerifier.length, "Corrections à vérifier"]
+    ].map(function (s) {
       return '<div class="stat"><strong>' + s[0] + "</strong><span>" + s[1] + "</span></div>";
     }).join("");
 
     const term = search.value.trim().toLowerCase();
-    const list = state.users.filter(function (u) {
-      return (!roleFilter.value || u.role === roleFilter.value) &&
-        (!term || (fullName(u) + " " + u.email + " " + u.username).toLowerCase().includes(term));
+    const list = classes.filter(function (c) {
+      const prof = getUser(c.profId);
+      if (filter.value === "sansProf" && prof) return false;
+      if (filter.value === "anomalies" && !badgesToCheck(c.id).length) return false;
+      return !term || (classeLabel(c) + " " + (prof ? fullName(prof) : "")).toLowerCase().includes(term);
     });
-    document.getElementById("count").textContent = plural(list.length, "utilisateur");
+    document.getElementById("count").textContent = plural(list.length, "classe");
 
-    document.getElementById("users").innerHTML = list.map(function (u) {
-      const nbClasses = u.role === "enseignant"
-        ? classesOfProf(u.id, false).length
-        : u.role === "etudiant" ? classesOfStudent(u.id).length : "—";
-      const roleSelect = '<select onchange="changerRole(\'' + u.id + '\', this.value)"' + (u.id === me.id ? " disabled" : "") + ">" +
-        Object.keys(ROLE_LABELS).map(function (r) {
-          return '<option value="' + r + '"' + (u.role === r ? " selected" : "") + ">" + ROLE_LABELS[r] + "</option>";
-        }).join("") + "</select>";
-      return "<tr><td><strong>" + esc(fullName(u)) + '</strong><br><span class="hint">' + esc(u.username) + "</span></td>" +
-        "<td>" + esc(u.email) + "</td><td>" + roleSelect + "</td><td>" + nbClasses + "</td>" +
-        "<td>" + (u.id === me.id ? "" : '<button class="link-btn" onclick="supprimer(\'' + u.id + '\')">Supprimer</button>') + "</td></tr>";
-    }).join("");
-  }
+    if (!classes.length) {
+      document.getElementById("cards").innerHTML = '<p class="empty">Aucune classe disponible.</p>';
+    } else if (!list.length) {
+      document.getElementById("cards").innerHTML = '<p class="empty">Aucune classe ne correspond à la recherche.</p>';
+    } else {
+      document.getElementById("cards").innerHTML = list.map(function (c) {
+        const prof = getUser(c.profId);
+        const nbCheck = badgesToCheck(c.id).length;
+        return '<div class="card"><div class="meta"><span>' + esc(c.groupe) + "</span><span>" + plural(studentsOf(c.id).length, "étudiant") + "</span></div>" +
+          '<div class="card-body"><h4>' + esc(c.nom) + "</h4>" +
+          "<p>" + (prof ? "Prof. " + esc(fullName(prof)) : '<span class="tag warn">Sans enseignant</span>') + "</p>" +
+          "<p>" + plural(badgesOf(c.id).length, "badge") + (nbCheck ? ' · <span class="tag warn">' + nbCheck + " à vérifier</span>" : "") + "</p></div>" +
+          '<a class="btn secondary block" href="admin-classe.html?id=' + c.id + '">Superviser →</a></div>';
+      }).join("");
+    }
 
-  function changerRole(id, role) {
-    getUser(id).role = role;
-    saveState();
-    showNotification("Rôle de " + fullName(getUser(id)) + " : " + ROLE_LABELS[role]);
-    render();
-  }
-
-  function supprimer(id) {
-    const u = getUser(id);
-    if (!confirm("Supprimer le compte de " + fullName(u) + " ?")) return;
-    state.users = state.users.filter(function (x) { return x.id !== id; });
-    state.inscriptions = state.inscriptions.filter(function (i) { return i.etudiantId !== id; });
-    state.attributions = state.attributions.filter(function (a) { return a.etudiantId !== id; });
-    saveState();
-    showNotification("Compte supprimé");
-    render();
+    const sigs = state.signalements.slice().sort(function (a, b) {
+      // Les corrections à vérifier d'abord, puis les plus récents
+      const order = { corrige: 0, ouvert: 1, ferme: 2 };
+      return order[a.statut] - order[b.statut] || b.date.localeCompare(a.date);
+    });
+    document.getElementById("sigCount").textContent = plural(sigs.length, "signalement");
+    document.getElementById("signalements").innerHTML = sigs.length
+      ? sigs.map(function (s) {
+          const b = getBadge(s.badgeId);
+          const c = getClasse(s.classeId);
+          if (!b || !c) return "";
+          return "<li>" + medalHtml(b, { size: "sm" }) +
+            '<span class="grow"><strong>' + esc(b.nom) + '</strong><br><span class="muted">' + esc(classeLabel(c)) + " · signalé " + relativeDate(s.date) + "</span></span>" +
+            statutHtml(s) + '<a class="btn secondary small" href="admin-classe.html?id=' + c.id + "#badge-" + b.id + '">Voir →</a></li>';
+        }).join("")
+      : '<li class="empty">Aucun signalement pour l\'instant.</li>';
   }
 
   render();

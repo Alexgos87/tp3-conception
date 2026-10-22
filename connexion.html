@@ -12,6 +12,7 @@
 
 <main class="narrow">
   <h2 style="text-align:center; margin-bottom:30px;">Se connecter</h2>
+  <p class="error" id="loginError" role="alert" hidden>Nom d'utilisateur ou mot de passe incorrect. Vérifiez vos identifiants et réessayez.</p>
   <form class="stack" onsubmit="seConnecter(event)">
     <label for="username">Nom d'utilisateur</label>
     <input type="text" id="username" autocomplete="username" required>
@@ -35,7 +36,10 @@
     event.preventDefault();
     const user = findUser(document.getElementById("username").value.trim(), document.getElementById("password").value);
     if (!user) {
-      showNotification("Nom d'utilisateur ou mot de passe incorrect");
+      document.getElementById("loginError").hidden = false;
+      const password = document.getElementById("password");
+      password.value = "";
+      password.focus();
       return;
     }
     login(user);

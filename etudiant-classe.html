@@ -31,21 +31,17 @@
     </section>
   </div>
 
-  <section class="panel" style="margin-top:20px">
+  <section class="panel" style="margin-top:20px" id="badges-section">
     <h3>Badges <small id="badgeCount"></small></h3>
-    <div class="badge-row" id="badges"></div>
-  </section>
-
-  <section class="panel">
-    <h3>Comment obtenir les badges</h3>
-    <ul class="criteria-list" id="criteria"></ul>
+    <p class="hint" style="margin-top:0">Sélectionnez un badge pour voir ses critères et son statut.</p>
+    <ul class="choice-list" id="badges"></ul>
   </section>
 </main>
 
 <script>
   const user = requireRole("etudiant");
   const classe = getClasse(qs("id"));
-  if (!classe || classe.archived || !isEnrolled(user.id, classe.id)) window.location.replace("etudiant.html");
+  if (!classe || classe.archived || !isEnrolled(user.id, classe.id)) denyAccess("Vous n'êtes pas inscrit à cette classe.");
 
   document.title = classe.nom + " - Ludik";
   document.getElementById("eyebrow").textContent = "Classe · " + classe.groupe;
@@ -76,18 +72,16 @@
   const badges = badgesOf(classe.id);
   const earned = badgesEarned(user.id, classe.id);
   document.getElementById("badgeCount").textContent = earned.length + " / " + badges.length + " obtenus";
-  document.getElementById("badges").innerHTML = badges.map(function (b) {
-    const has = hasBadge(user.id, b.id);
-    return '<a class="badge-tile" href="#crit-' + b.id + '">' + medalHtml(b, { locked: !has }) + "<span>" + esc(b.nom) + "</span></a>";
-  }).join("");
-
-  document.getElementById("criteria").innerHTML = badges.map(function (b) {
-    const att = state.attributions.find(function (a) { return a.badgeId === b.id && a.etudiantId === user.id; });
-    const nbHolders = holdersOf(b.id).length;
-    return '<li id="crit-' + b.id + '">' + medalHtml(b, { locked: !att }) +
-      "<div><h4>" + esc(b.nom) + " · +" + b.xp + " XP</h4><p>" + esc(b.description) + "</p>" +
-      '<div class="status">' + (att ? "✓ Obtenu " + relativeDate(att.date) : "À obtenir") + " · " + nbHolders + " / " + rows.length + " étudiants l'ont</div></div></li>";
-  }).join("") || '<li class="empty">Votre enseignant n\'a pas encore créé de badges.</li>';
+  document.getElementById("badges").innerHTML = badges.length
+    ? badges.map(function (b) {
+        const n = countBadge(user.id, b.id);
+        const status = n
+          ? '<span class="tag">✓ Obtenu' + (n > 1 ? " ×" + n : "") + "</span>"
+          : '<span class="tag muted">À obtenir</span>';
+        return '<li><button type="button" onclick="location.href=\'etudiant-badge.html?id=' + b.id + '\'">' + medalHtml(b, { locked: !n }) +
+          '<span class="grow"><strong>' + esc(b.nom) + '</strong><br><span class="hint">+' + b.xp + " XP</span></span>" + status + " →</button></li>";
+      }).join("")
+    : '<li class="empty">Aucun badge disponible pour cette classe.</li>';
 </script>
 
 </body>

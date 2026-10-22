@@ -1,9 +1,13 @@
 const APP_NAME = "Ludik";
-const STATE_KEY = "ludik::state";
+const STATE_KEY = "ludik::state-v2";
 const USER_KEY = "ludik::user";
 const THEME_KEY = "ludik::theme";
+const PANNE_KEY = "ludik::panne";
 const XP_PAR_NIVEAU = 100;
 const SYMBOLES = ["★", "◆", "●", "▲", "✓", "♥", "✎", "?", "∑", "⚑", "☀", "♪"];
+
+// Règles de la plateforme vérifiées par l'administrateur
+const REGLES = { xpMin: 1, xpMax: 100, descriptionMin: 15 };
 
 /* ---------- Stockage ---------- */
 
@@ -29,8 +33,33 @@ function loadState() {
 
 let state = loadState();
 
-function saveState() {
-  storageSet(STATE_KEY, JSON.stringify(state));
+function panneSimulee() {
+  try { return sessionStorage.getItem(PANNE_KEY) === "1"; } catch (e) { return false; }
+}
+
+function togglePanne() {
+  try { sessionStorage.setItem(PANNE_KEY, panneSimulee() ? "0" : "1"); } catch (e) { /* ignoré */ }
+  window.location.reload();
+}
+
+// Applique une modification et l'enregistre. Si l'enregistrement échoue,
+// rien n'est modifié, une erreur est affichée et la fonction renvoie false.
+function commit(change) {
+  if (panneSimulee()) {
+    showNotification("Erreur : l'enregistrement a échoué. Rien n'a été modifié, réessayez.");
+    return false;
+  }
+  const before = JSON.stringify(state);
+  change();
+  try {
+    localStorage.setItem(STATE_KEY, JSON.stringify(state));
+    return true;
+  } catch (e) {
+    const snap = JSON.parse(before);
+    Object.keys(snap).forEach(function (k) { state[k] = snap[k]; });
+    showNotification("Erreur : l'enregistrement a échoué. Rien n'a été modifié, réessayez.");
+    return false;
+  }
 }
 
 function resetPrototype() {
@@ -87,8 +116,19 @@ function homeFor(user) {
   return "etudiant.html";
 }
 
-// Redirige vers la connexion si personne n'est connecté, ou vers l'accueil
-// du rôle si l'utilisateur n'a pas le bon rôle pour la page.
+// Remplace le contenu de la page par un message d'accès refusé et arrête le script de la page.
+function denyAccess(message) {
+  const user = getCurrentUser();
+  document.querySelector("main").innerHTML =
+    '<div class="eyebrow">Accès refusé</div>' +
+    '<h2 class="title">Vous n\'avez pas accès à cette page.</h2>' +
+    '<p class="subtitle">' + esc(message) + "</p>" +
+    '<a class="btn" style="margin-top:20px" href="' + homeFor(user) + '">Retour à mon accueil</a>';
+  throw new Error("accès refusé");
+}
+
+// Redirige vers la connexion si personne n'est connecté et refuse l'accès
+// si l'utilisateur n'a pas le bon rôle pour la page.
 function requireRole(role) {
   const user = getCurrentUser();
   if (!user) {
@@ -96,13 +136,19 @@ function requireRole(role) {
     throw new Error("non connecté");
   }
   if (role && user.role !== role) {
-    window.location.replace(homeFor(user));
-    throw new Error("mauvais rôle");
+    denyAccess("Cette page est réservée aux " + ROLE_PLURALS[role] + ".");
   }
   return user;
 }
 
+// Un enseignant ne gère que les classes dont il est responsable.
+function requireOwnClasse(classe, user) {
+  if (!classe) denyAccess("Cette classe n'existe pas.");
+  if (classe.profId !== user.id) denyAccess("Vous n'êtes pas l'enseignant responsable de cette classe.");
+}
+
 const ROLE_LABELS = { etudiant: "Étudiant", enseignant: "Enseignant", admin: "Administrateur" };
+const ROLE_PLURALS = { etudiant: "étudiants", enseignant: "enseignants", admin: "administrateurs" };
 
 /* ---------- Utilitaires ---------- */
 
@@ -129,6 +175,10 @@ function relativeDate(iso) {
   if (days <= 0) return "aujourd'hui";
   if (days === 1) return "hier";
   if (days < 30) return "il y a " + days + " jours";
+  return formatDate(iso);
+}
+
+function formatDate(iso) {
   return new Date(iso).toLocaleDateString("fr-CA", { day: "numeric", month: "long", year: "numeric" });
 }
 
@@ -148,7 +198,7 @@ function showNotification(text) {
   clearTimeout(box._hideTimer);
   box._hideTimer = setTimeout(function () {
     box.classList.remove("show");
-  }, 3000);
+  }, 3500);
 }
 
 /* ---------- Domaine ---------- */
@@ -200,12 +250,27 @@ function attributionsOf(etudiantId, classeId) {
   });
 }
 
+function badgeAttributions(etudiantId, badgeId) {
+  return state.attributions
+    .filter(function (a) { return a.etudiantId === etudiantId && a.badgeId === badgeId; })
+    .sort(function (a, b) { return b.date.localeCompare(a.date); });
+}
+
 function xpOf(etudiantId, classeId) {
   return attributionsOf(etudiantId, classeId).reduce(function (sum, a) { return sum + a.xp; }, 0);
 }
 
+function countBadge(etudiantId, badgeId) {
+  return badgeAttributions(etudiantId, badgeId).length;
+}
+
 function hasBadge(etudiantId, badgeId) {
-  return state.attributions.some(function (a) { return a.etudiantId === etudiantId && a.badgeId === badgeId; });
+  return countBadge(etudiantId, badgeId) > 0;
+}
+
+// Un badge non cumulable ne peut être attribué qu'une fois au même étudiant.
+function canReceive(etudiantId, badge) {
+  return badge.cumulable || !hasBadge(etudiantId, badge.id);
 }
 
 function badgesEarned(etudiantId, classeId) {
@@ -247,16 +312,23 @@ function addNotificationFor(userId, text) {
   state.notifications.unshift({ id: newId("n"), userId: userId, text: text, date: new Date().toISOString(), read: false });
 }
 
+function notifyAdmins(text) {
+  state.users.forEach(function (u) {
+    if (u.role === "admin") addNotificationFor(u.id, text);
+  });
+}
+
 function giveBadge(badgeId, etudiantId) {
   const badge = getBadge(badgeId);
   const classe = getClasse(badge.classeId);
-  if (hasBadge(etudiantId, badgeId)) return;
+  if (!canReceive(etudiantId, badge)) return false;
   const me = getCurrentUser();
   state.attributions.push({
     id: newId("a"), etudiantId: etudiantId, classeId: badge.classeId, badgeId: badgeId,
     xp: badge.xp, note: "", date: new Date().toISOString(), parId: me ? me.id : null
   });
   addNotificationFor(etudiantId, "Badge « " + badge.nom + " » obtenu en " + classe.nom + " (+" + badge.xp + " XP).");
+  return true;
 }
 
 function revokeBadge(badgeId, etudiantId) {
@@ -273,6 +345,32 @@ function giveXp(etudiantId, classeId, xp, note) {
     xp: xp, note: note, date: new Date().toISOString(), parId: me ? me.id : null
   });
   addNotificationFor(etudiantId, "+" + xp + " XP en " + classe.nom + (note ? " : " + note : "") + ".");
+}
+
+// Problèmes détectés automatiquement selon les règles de la plateforme
+function badgeIssues(badge) {
+  const issues = [];
+  if (!badge.description || badge.description.trim().length < REGLES.descriptionMin) {
+    issues.push("Critères incomplets");
+  }
+  if (!(badge.xp >= REGLES.xpMin && badge.xp <= REGLES.xpMax)) {
+    issues.push("Points incohérents (" + badge.xp + " XP, attendu entre " + REGLES.xpMin + " et " + REGLES.xpMax + ")");
+  }
+  return issues;
+}
+
+/* ---------- Signalements (admin → enseignant) ---------- */
+
+const STATUT_LABELS = { ouvert: "En attente de correction", corrige: "Corrigé, à vérifier", ferme: "Vérifié" };
+
+function signalementsOf(badgeId) {
+  return state.signalements
+    .filter(function (s) { return s.badgeId === badgeId; })
+    .sort(function (a, b) { return b.date.localeCompare(a.date); });
+}
+
+function activeSignalement(badgeId) {
+  return signalementsOf(badgeId).find(function (s) { return s.statut !== "ferme"; }) || null;
 }
 
 /* ---------- Composants HTML ---------- */
@@ -295,6 +393,10 @@ function progressHtml(xp) {
     lv.dansNiveau + " / " + XP_PAR_NIVEAU + " XP</span></div>";
 }
 
+function statutHtml(signalement) {
+  return '<span class="tag' + (signalement.statut === "ouvert" ? " warn" : "") + '">' + STATUT_LABELS[signalement.statut] + "</span>";
+}
+
 /* ---------- En-tête et pied de page ---------- */
 
 const ICONS = {
@@ -310,7 +412,7 @@ function profileMenuLinks(user) {
     return '<a href="prof.html">Mes classes</a><a href="prof.html?vue=archives">Classes archivées</a>';
   }
   if (user.role === "admin") {
-    return '<a href="admin.html">Utilisateurs</a>';
+    return '<a href="admin.html">Classes</a><a href="admin-utilisateurs.html">Utilisateurs</a>';
   }
   return '<a href="etudiant.html">Mon profil</a>';
 }
@@ -346,6 +448,7 @@ function renderHeader() {
       '<div class="dd-head"><strong>' + esc(fullName(user)) + "</strong><span>" + ROLE_LABELS[user.role].toUpperCase() + "</span></div>" +
       profileMenuLinks(user) +
       '<div class="dd-sep"></div>' +
+      '<button type="button" class="dd-item" onclick="togglePanne()">Simuler une panne d\'enregistrement : ' + (panneSimulee() ? "<strong>oui</strong>" : "non") + "</button>" +
       '<button type="button" class="dd-item" onclick="resetPrototype()">Réinitialiser le prototype</button>' +
       '<button type="button" class="dd-item" onclick="logout()"><strong>Se déconnecter</strong></button>' +
       "</div></div>";
@@ -369,11 +472,11 @@ function renderHeader() {
 
   setupDropdown("profileBtn", "profileMenu");
   setupDropdown("bellBtn", "bellMenu", function () {
-    // Ouvrir la cloche marque les notifications comme lues
+    // Ouvrir la cloche marque les notifications comme lues (sans message d'erreur si ça échoue)
     state.notifications.forEach(function (n) {
       if (n.userId === user.id) n.read = true;
     });
-    saveState();
+    storageSet(STATE_KEY, JSON.stringify(state));
     document.getElementById("bellBtn").classList.remove("has-unread");
   });
 }

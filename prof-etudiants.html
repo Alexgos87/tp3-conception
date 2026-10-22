@@ -37,7 +37,7 @@
 <script>
   const user = requireRole("enseignant");
   const classe = getClasse(qs("classe"));
-  if (!classe || classe.profId !== user.id) window.location.replace("prof.html");
+  requireOwnClasse(classe, user);
 
   document.getElementById("title").textContent = classeLabel(classe);
   document.getElementById("backLink").href = "prof-classe.html?id=" + classe.id;
@@ -58,7 +58,9 @@
             '<span class="muted">' + plural(nbBadges, "badge") + " · " + r.xp + " XP</span>" +
             '<a class="btn secondary small" href="prof-etudiant.html?classe=' + classe.id + "&etudiant=" + r.etudiant.id + '">Gérer →</a></li>';
         }).join("")
-      : '<li class="empty">Aucun étudiant trouvé.</li>';
+      : rows.length
+        ? '<li class="empty">Aucun étudiant trouvé.</li>'
+        : '<li class="empty">Aucun étudiant n\'est inscrit à cette classe. Ajoutez-en un ci-dessous avant d\'accorder des badges.</li>';
 
     const candidats = state.users.filter(function (u) { return u.role === "etudiant" && !isEnrolled(u.id, classe.id); });
     document.getElementById("addSelect").innerHTML = '<option value="">Choisir un étudiant…</option>' +
@@ -71,9 +73,11 @@
     event.preventDefault();
     const id = document.getElementById("addSelect").value;
     if (!id) return;
-    state.inscriptions.push({ classeId: classe.id, etudiantId: id });
-    addNotificationFor(id, "Vous avez été ajouté à la classe " + classeLabel(classe) + ".");
-    saveState();
+    const ok = commit(function () {
+      state.inscriptions.push({ classeId: classe.id, etudiantId: id });
+      addNotificationFor(id, "Vous avez été ajouté à la classe " + classeLabel(classe) + ".");
+    });
+    if (!ok) return;
     showNotification(fullName(getUser(id)) + " a été ajouté à la classe");
     render();
   }

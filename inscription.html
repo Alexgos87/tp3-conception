@@ -58,8 +58,7 @@
       email: document.getElementById("email").value.trim(),
       role: document.querySelector("input[name=role]:checked").value
     };
-    state.users.push(user);
-    saveState();
+    if (!commit(function () { state.users.push(user); })) return;
     login(user);
     window.location.href = homeFor(user);
   }

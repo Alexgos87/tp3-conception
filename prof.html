@@ -87,14 +87,12 @@
       profId: user.id,
       archived: false
     };
-    state.classes.push(classe);
-    saveState();
+    if (!commit(function () { state.classes.push(classe); })) return;
     window.location.href = "prof-classe.html?id=" + classe.id;
   }
 
   function restaurer(id) {
-    getClasse(id).archived = false;
-    saveState();
+    if (!commit(function () { getClasse(id).archived = false; })) return;
     showNotification("Classe restaurée");
     render();
   }

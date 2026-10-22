@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Badge - Ludik</title>
+<link rel="stylesheet" href="style.css">
+<script src="data.js"></script>
+<script src="app.js"></script>
+</head>
+<body>
+
+<main>
+  <a class="back-link" id="backLink">← Retour à la liste des badges</a>
+
+  <div class="badge-editor" style="margin-top:10px">
+    <div>
+      <div class="eyebrow" id="eyebrow"></div>
+      <h2 class="title" id="title"></h2>
+      <p class="subtitle" id="subtitle"></p>
+
+      <section class="panel" style="margin-top:25px">
+        <h3>Critères d'attribution</h3>
+        <p id="description" style="margin:0; font-size:15px; line-height:1.5"></p>
+      </section>
+
+      <section class="panel">
+        <h3>Mon statut</h3>
+        <div id="status"></div>
+      </section>
+    </div>
+
+    <div class="image-box" style="align-self:start">
+      <div id="medal"></div>
+      <div id="statusTag"></div>
+      <p class="hint" id="holders" style="text-align:center; margin:0"></p>
+    </div>
+  </div>
+</main>
+
+<script>
+  // Consultation seulement : l'étudiant ne peut ni modifier ce badge ni se l'attribuer.
+  const user = requireRole("etudiant");
+  const badge = getBadge(qs("id"));
+  if (!badge) denyAccess("Ce badge n'existe pas.");
+  const classe = getClasse(badge.classeId);
+  if (!classe || classe.archived || !isEnrolled(user.id, classe.id)) {
+    denyAccess("Ce badge appartient à une classe à laquelle vous n'êtes pas inscrit.");
+  }
+
+  const obtentions = badgeAttributions(user.id, badge.id);
+  const total = studentsOf(classe.id).length;
+
+  document.title = badge.nom + " - Ludik";
+  document.getElementById("backLink").href = "etudiant-classe.html?id=" + classe.id + "#badges-section";
+  document.getElementById("eyebrow").textContent = "Badge · " + classeLabel(classe);
+  document.getElementById("title").textContent = badge.nom;
+  document.getElementById("subtitle").textContent =
+    "+" + badge.xp + " XP · " + (badge.cumulable ? "Peut être obtenu plusieurs fois" : "Ne peut être obtenu qu'une fois");
+  document.getElementById("description").textContent = badge.description || "Votre enseignant n'a pas encore décrit les critères de ce badge.";
+
+  document.getElementById("medal").innerHTML = medalHtml(badge, { size: "lg", locked: !obtentions.length });
+  document.getElementById("statusTag").innerHTML = obtentions.length
+    ? '<span class="tag">✓ Obtenu' + (obtentions.length > 1 ? " ×" + obtentions.length : "") + "</span>"
+    : '<span class="tag muted">Pas encore obtenu</span>';
+  document.getElementById("holders").textContent = holdersOf(badge.id).length + " / " + total + " étudiants de la classe l'ont obtenu";
+
+  if (obtentions.length) {
+    document.getElementById("status").innerHTML = '<ul class="row-list">' + obtentions.map(function (a) {
+      const prof = getUser(a.parId);
+      return '<li><span class="grow"><strong>Obtenu le ' + formatDate(a.date) + '</strong><br><span class="muted">' +
+        relativeDate(a.date) + (prof ? " · accordé par " + esc(fullName(prof)) : "") + "</span></span><strong>+" + a.xp + " XP</strong></li>";
+    }).join("") + "</ul>" +
+      (badge.cumulable ? '<p class="hint">Ce badge est cumulable : vous pouvez l\'obtenir de nouveau en remplissant encore les critères.</p>' : "");
+  } else {
+    document.getElementById("status").innerHTML =
+      '<p style="margin:0; font-size:14px">Vous n\'avez pas encore obtenu ce badge. Remplissez les critères ci-dessus : ' +
+      "votre enseignant vous l'attribuera et vous recevrez une notification.</p>";
+  }
+</script>
+
+</body>
+</html>

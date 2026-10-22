@@ -15,6 +15,7 @@
   <div class="eyebrow" id="eyebrow"></div>
   <h2 class="title" id="title"></h2>
   <p class="subtitle" id="subtitle"></p>
+  <div id="confirmation"></div>
 
   <div class="grid-2" style="margin-top:30px">
     <section class="panel">
@@ -38,9 +39,10 @@
   <section class="panel" style="margin-top:20px">
     <h3>Badges <small id="badgeCount"></small></h3>
     <div class="badge-row" id="badges"></div>
-    <div id="picker" hidden style="margin-top:20px">
-      <p class="hint">Badges de la classe pas encore obtenus :</p>
-      <ul class="row-list" id="pickerList"></ul>
+    <div id="picker" hidden style="margin-top:25px">
+      <h3>Choisir un badge <small>Vérifiez les critères avant de confirmer</small></h3>
+      <ul class="choice-list" id="pickerList"></ul>
+      <div id="pickerDetail"></div>
     </div>
   </section>
 
@@ -55,10 +57,12 @@
 <script>
   const user = requireRole("enseignant");
   const classe = getClasse(qs("classe"));
+  requireOwnClasse(classe, user);
   const etudiant = getUser(qs("etudiant"));
-  if (!classe || classe.profId !== user.id || !etudiant || !isEnrolled(etudiant.id, classe.id)) {
-    window.location.replace("prof.html");
-  }
+  if (!etudiant || !isEnrolled(etudiant.id, classe.id)) denyAccess("Cet étudiant n'est pas inscrit à cette classe.");
+
+  let selectedId = null;   // badge choisi dans la liste, en attente de confirmation
+  let lastGivenId = null;  // badge qui vient d'être attribué (mis en évidence)
 
   document.title = fullName(etudiant) + " - Ludik";
   document.getElementById("backLink").href = "prof-etudiants.html?classe=" + classe.id;
@@ -81,18 +85,55 @@
     const all = badgesOf(classe.id);
     document.getElementById("badgeCount").textContent = earned.length + " / " + all.length;
     document.getElementById("badges").innerHTML = earned.map(function (b) {
-      return '<a class="badge-tile" href="prof-badge.html?id=' + b.id + '">' + medalHtml(b) + "<span>" + esc(b.nom) + "</span></a>";
+      const n = countBadge(etudiant.id, b.id);
+      return '<a class="badge-tile' + (b.id === lastGivenId ? " new" : "") + '" href="prof-badge.html?id=' + b.id + '">' + medalHtml(b) +
+        "<span>" + esc(b.nom) + (n > 1 ? ' <span class="count">×' + n + "</span>" : "") + "</span></a>";
     }).join("") + '<button type="button" class="add-square" title="Attribuer un badge" onclick="togglePicker()">+</button>';
 
-    const remaining = all.filter(function (b) { return !hasBadge(etudiant.id, b.id); });
-    document.getElementById("pickerList").innerHTML = remaining.length
-      ? remaining.map(function (b) {
-          return "<li>" + medalHtml(b, { size: "sm" }) + '<span class="grow"><strong>' + esc(b.nom) + '</strong><br><span class="muted">' + esc(b.description) + "</span></span>" +
-            '<span class="muted">+' + b.xp + " XP</span>" +
-            '<button class="btn small" onclick="attribuer(\'' + b.id + '\')">Attribuer</button></li>';
-        }).join("")
-      : '<li class="empty">Cet étudiant a déjà tous les badges de la classe.</li>';
+    renderPicker();
+    renderHistory();
+  }
 
+  function renderPicker() {
+    const all = badgesOf(classe.id);
+    if (!all.length) {
+      document.getElementById("pickerList").innerHTML =
+        '<li class="empty">Aucun badge n\'est défini pour cette classe. Définissez-en un avant de l\'attribuer. ' +
+        '<a href="prof-badge.html?classe=' + classe.id + '">Créer un badge →</a></li>';
+      document.getElementById("pickerDetail").innerHTML = "";
+      return;
+    }
+
+    document.getElementById("pickerList").innerHTML = all.map(function (b) {
+      const n = countBadge(etudiant.id, b.id);
+      const allowed = canReceive(etudiant.id, b);
+      let status = "+" + b.xp + " XP";
+      if (!allowed) status = '<span class="tag muted">Déjà attribué</span>';
+      else if (n) status = "Obtenu ×" + n + " · cumulable · +" + b.xp + " XP";
+      return '<li><button type="button" class="' + (b.id === selectedId ? "selected" : "") + '"' + (allowed ? "" : " disabled") +
+        ' onclick="choisir(\'' + b.id + '\')">' + medalHtml(b, { size: "sm", locked: !allowed }) +
+        '<span class="grow">' + esc(b.nom) + '</span><span class="muted">' + status + "</span></button></li>";
+    }).join("");
+
+    const b = selectedId ? getBadge(selectedId) : null;
+    if (!b) {
+      document.getElementById("pickerDetail").innerHTML = "";
+      return;
+    }
+    const sig = activeSignalement(b.id);
+    document.getElementById("pickerDetail").innerHTML =
+      '<div class="detail">' + medalHtml(b, { size: "lg" }) + '<div style="flex:1">' +
+      "<h4>" + esc(b.nom) + "</h4>" +
+      "<p><strong>Critères :</strong> " + (b.description ? esc(b.description) : "<em>aucun critère décrit</em>") + "</p>" +
+      "<p><strong>Récompense :</strong> +" + b.xp + " XP · " + (b.cumulable ? "cumulable" : "non cumulable (une seule fois par étudiant)") + "</p>" +
+      (sig && sig.statut === "ouvert" ? '<p><span class="tag warn">⚑ Anomalie signalée par l\'administration</span></p>' : "") +
+      "<p>L'étudiant a-t-il rempli ces critères ?</p>" +
+      '<div class="inline-form" style="margin-top:12px"><button type="button" class="btn" onclick="confirmer()">Confirmer l\'attribution</button>' +
+      '<button type="button" class="btn secondary" onclick="choisir(null)">Annuler</button></div>' +
+      "</div></div>";
+  }
+
+  function renderHistory() {
     const history = attributionsOf(etudiant.id, classe.id).slice().sort(function (a, b) { return b.date.localeCompare(a.date); });
     document.getElementById("history").innerHTML = history.length
       ? history.map(function (a) {
@@ -108,21 +149,44 @@
   function togglePicker() {
     const picker = document.getElementById("picker");
     picker.hidden = !picker.hidden;
+    selectedId = null;
+    renderPicker();
+    if (!picker.hidden) picker.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
-  function attribuer(badgeId) {
-    giveBadge(badgeId, etudiant.id);
-    saveState();
-    showNotification("Badge « " + getBadge(badgeId).nom + " » attribué");
+  function choisir(badgeId) {
+    selectedId = badgeId;
+    renderPicker();
+  }
+
+  function confirmer() {
+    const badge = getBadge(selectedId);
+    if (!canReceive(etudiant.id, badge)) {
+      showNotification("Ce badge est déjà attribué et n'est pas cumulable.");
+      return;
+    }
+    const xpAvant = xpOf(etudiant.id, classe.id);
+    if (!commit(function () { giveBadge(badge.id, etudiant.id); })) {
+      // L'attribution n'est pas confirmée : la sélection reste en place pour réessayer
+      return;
+    }
+    const xpApres = xpOf(etudiant.id, classe.id);
+    selectedId = null;
+    lastGivenId = badge.id;
+    document.getElementById("picker").hidden = true;
+    document.getElementById("confirmation").innerHTML =
+      '<div class="notice" role="status"><strong>✓ Badge « ' + esc(badge.nom) + " » attribué à " + esc(etudiant.prenom) + ".</strong>" +
+      "Points : " + xpAvant + " → " + xpApres + " XP (+" + badge.xp + "). L'étudiant a été avisé et peut consulter sa nouvelle récompense.</div>";
     render();
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function ajouterXp(event) {
     event.preventDefault();
     const xp = parseInt(document.getElementById("xpAmount").value, 10);
     if (!(xp > 0)) return;
-    giveXp(etudiant.id, classe.id, xp, document.getElementById("xpNote").value.trim());
-    saveState();
+    const note = document.getElementById("xpNote").value.trim();
+    if (!commit(function () { giveXp(etudiant.id, classe.id, xp, note); })) return;
     document.getElementById("xpNote").value = "";
     showNotification("+" + xp + " XP pour " + etudiant.prenom);
     render();
@@ -130,9 +194,11 @@
 
   function retirer() {
     if (!confirm("Retirer " + fullName(etudiant) + " de " + classeLabel(classe) + " ? Ses points et badges de cette classe seront supprimés.")) return;
-    state.inscriptions = state.inscriptions.filter(function (i) { return !(i.classeId === classe.id && i.etudiantId === etudiant.id); });
-    state.attributions = state.attributions.filter(function (a) { return !(a.classeId === classe.id && a.etudiantId === etudiant.id); });
-    saveState();
+    const ok = commit(function () {
+      state.inscriptions = state.inscriptions.filter(function (i) { return !(i.classeId === classe.id && i.etudiantId === etudiant.id); });
+      state.attributions = state.attributions.filter(function (a) { return !(a.classeId === classe.id && a.etudiantId === etudiant.id); });
+    });
+    if (!ok) return;
     window.location.href = "prof-etudiants.html?classe=" + classe.id;
   }
 

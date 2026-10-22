@@ -13,6 +13,7 @@
 <main>
   <a class="back-link" id="backLink">← Retour à la classe</a>
   <div class="eyebrow" id="eyebrow"></div>
+  <div id="signalement" style="margin-top:15px"></div>
 
   <form id="badgeForm" onsubmit="enregistrer(event)">
     <div class="badge-editor" style="margin-top:15px">
@@ -36,7 +37,13 @@
             <input type="number" id="xp" min="0" max="500" required>
             <button type="button" class="pencil" data-focus="xp" title="Modifier"></button>
           </div>
+          <p class="hint" id="xpRule"></p>
         </div>
+
+        <label style="display:flex; gap:10px; align-items:center; font-weight:normal">
+          <input type="checkbox" id="cumulable">
+          Badge cumulable (peut être attribué plusieurs fois au même étudiant)
+        </label>
       </div>
 
       <div class="image-box">
@@ -71,12 +78,12 @@
   const user = requireRole("enseignant");
   const existing = qs("id") ? getBadge(qs("id")) : null;
   const classe = getClasse(existing ? existing.classeId : qs("classe"));
-  if (!classe || classe.profId !== user.id) window.location.replace("prof.html");
+  requireOwnClasse(classe, user);
 
   // Brouillon modifié par la page ; rien n'est sauvegardé avant « Enregistrer »
   const draft = existing
     ? Object.assign({}, existing)
-    : { id: newId("b"), classeId: classe.id, nom: "", description: "", xp: 20, symbole: "★", image: null };
+    : { id: newId("b"), classeId: classe.id, nom: "", description: "", xp: 20, cumulable: false, symbole: "★", image: null };
   const holders = new Set(existing ? holdersOf(existing.id).map(function (s) { return s.id; }) : []);
 
   document.title = (existing ? existing.nom : "Nouveau badge") + " - Ludik";
@@ -85,6 +92,19 @@
   document.getElementById("nom").value = draft.nom;
   document.getElementById("description").value = draft.description;
   document.getElementById("xp").value = draft.xp;
+  document.getElementById("cumulable").checked = !!draft.cumulable;
+  document.getElementById("xpRule").textContent = "Règle de la plateforme : entre " + REGLES.xpMin + " et " + REGLES.xpMax + " XP par badge.";
+
+  // Anomalie signalée par l'administration et pas encore corrigée
+  const signalement = existing ? activeSignalement(existing.id) : null;
+  if (signalement && signalement.statut === "ouvert") {
+    document.getElementById("signalement").innerHTML =
+      '<div class="notice warn"><strong>⚑ L\'administration demande une correction</strong>« ' + esc(signalement.message) + " »" +
+      '<p class="hint" style="margin:6px 0 0">Corrigez le badge puis enregistrez : l\'administration sera avisée de la correction.</p></div>';
+  } else if (signalement) {
+    document.getElementById("signalement").innerHTML =
+      '<div class="notice">' + statutHtml(signalement) + '<p class="hint" style="margin:6px 0 0">Votre correction a été envoyée, l\'administration doit la vérifier.</p></div>';
+  }
   document.getElementById("deleteBtn").hidden = !existing;
 
   document.querySelectorAll(".pencil").forEach(function (b) {
@@ -159,34 +179,45 @@
     draft.nom = document.getElementById("nom").value.trim();
     draft.description = document.getElementById("description").value.trim();
     draft.xp = parseInt(document.getElementById("xp").value, 10) || 0;
+    draft.cumulable = document.getElementById("cumulable").checked;
 
-    if (existing) {
-      Object.assign(existing, draft);
-      // Les XP déjà accordés suivent la nouvelle valeur du badge
-      state.attributions.forEach(function (a) {
-        if (a.badgeId === existing.id) a.xp = existing.xp;
+    const ok = commit(function () {
+      if (existing) {
+        Object.assign(existing, draft);
+        // Les XP déjà accordés suivent la nouvelle valeur du badge
+        state.attributions.forEach(function (a) {
+          if (a.badgeId === existing.id) a.xp = existing.xp;
+        });
+      } else {
+        state.badges.push(draft);
+      }
+
+      const before = existing ? holdersOf(draft.id).map(function (s) { return s.id; }) : [];
+      holders.forEach(function (id) {
+        if (!before.includes(id)) giveBadge(draft.id, id);
       });
-    } else {
-      state.badges.push(draft);
-    }
+      before.forEach(function (id) {
+        if (!holders.has(id)) revokeBadge(draft.id, id);
+      });
 
-    const before = existing ? holdersOf(draft.id).map(function (s) { return s.id; }) : [];
-    holders.forEach(function (id) {
-      if (!before.includes(id)) giveBadge(draft.id, id);
+      if (signalement && signalement.statut === "ouvert") {
+        signalement.statut = "corrige";
+        signalement.dateCorrection = new Date().toISOString();
+        notifyAdmins(fullName(user) + " a corrigé le badge « " + draft.nom + " » (" + classeLabel(classe) + ").");
+      }
     });
-    before.forEach(function (id) {
-      if (!holders.has(id)) revokeBadge(draft.id, id);
-    });
-
-    saveState();
+    if (!ok) return;
     window.location.href = "prof-classe.html?id=" + classe.id;
   }
 
   function supprimer() {
     if (!confirm("Supprimer le badge « " + existing.nom + " » ? Les XP qu'il a donnés seront retirés aux étudiants.")) return;
-    state.badges = state.badges.filter(function (b) { return b.id !== existing.id; });
-    state.attributions = state.attributions.filter(function (a) { return a.badgeId !== existing.id; });
-    saveState();
+    const ok = commit(function () {
+      state.badges = state.badges.filter(function (b) { return b.id !== existing.id; });
+      state.attributions = state.attributions.filter(function (a) { return a.badgeId !== existing.id; });
+      state.signalements = state.signalements.filter(function (s) { return s.badgeId !== existing.id; });
+    });
+    if (!ok) return;
     window.location.href = "prof-classe.html?id=" + classe.id;
   }
 
